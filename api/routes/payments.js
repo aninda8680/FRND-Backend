@@ -195,14 +195,29 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'Subscription record not found' });
     }
 
+    // Rate limit: max 5 verification attempts per user per 15 minutes
+    const verifyRateKey = `payment_verify:${req.user.id}`;
+    const verifyCount = await redis.incr(verifyRateKey);
+    if (verifyCount === 1) await redis.expire(verifyRateKey, 900);
+    if (verifyCount > 5) {
+      return res.status(429).json({ error: 'Too many verification attempts. Please wait 15 minutes.' });
+    }
+
     const { instance, key_id, key_secret } = getRazorpayInstance();
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // Block simulated subscription IDs entirely in production
+    if (isProduction && razorpay_subscription_id.startsWith('sub_sim_')) {
+      return res.status(400).json({ error: 'Simulated subscriptions are not valid in production' });
+    }
 
     // HMAC Signature Validation for Razorpay Subscriptions
     let isValid = false;
-    if (razorpay_subscription_id.startsWith('sub_sim_')) {
+    if (!isProduction && razorpay_subscription_id.startsWith('sub_sim_')) {
+      // Allow simulated subscriptions only in development/test mode
       isValid = true;
     } else if (razorpay_payment_id && razorpay_signature) {
-      // Signature payload format for Razorpay subscriptions: razorpay_payment_id + '|' + razorpay_subscription_id
+      // Primary path: HMAC-SHA256 signature verification
       const body = razorpay_payment_id + '|' + razorpay_subscription_id;
       const expectedSignature = crypto
         .createHmac('sha256', key_secret)
@@ -210,7 +225,7 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
         .digest('hex');
       isValid = (expectedSignature === razorpay_signature);
     } else if (!key_id.startsWith('rzp_test_your_') && !key_secret.startsWith('your_')) {
-      // Direct API verification from Razorpay servers if signature is omitted
+      // Fallback: Direct API verification from Razorpay servers
       try {
         const sub = await instance.subscriptions.fetch(razorpay_subscription_id);
         if (sub && (sub.status === 'active' || sub.status === 'authenticated' || sub.paid_count > 0)) {
@@ -220,9 +235,6 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
         console.error('[RAZORPAY API FETCH ERROR]:', subErr.message);
         isValid = false;
       }
-    } else {
-      // Fallback for local simulation mode
-      isValid = true;
     }
 
     if (!isValid) {
@@ -275,11 +287,15 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
   }
 });
 
-// Alias POST /api/payments/verify -> maps to verify-subscription
-router.post('/verify', authRequired, async (req, res, next) => {
-  const subId = req.body.razorpay_subscription_id || req.body.razorpay_order_id;
-  req.body.razorpay_subscription_id = subId;
-  return router.handle(req, res, next);
+// Alias POST /api/payments/verify -> maps to verify-subscription logic directly
+router.post('/verify', authRequired, async (req, res) => {
+  // Normalize field name for backward compatibility
+  if (!req.body.razorpay_subscription_id && req.body.razorpay_order_id) {
+    req.body.razorpay_subscription_id = req.body.razorpay_order_id;
+  }
+  // Re-dispatch directly to the verify-subscription handler function
+  req.url = '/verify-subscription';
+  router.handle(req, res, () => res.status(404).json({ error: 'Route not found' }));
 });
 
 // POST /api/payments/cancel-subscription (Cancel Autopay recurring subscription)
@@ -333,15 +349,23 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       eventPayload = req.body;
     }
 
-    if (signature && webhookSecret && !webhookSecret.startsWith('your_')) {
-      const expectedSignature = crypto
-        .createHmac('sha256', webhookSecret)
-        .update(JSON.stringify(eventPayload))
-        .digest('hex');
+    // ✅ Unconditional signature verification — reject if secret not configured
+    if (!webhookSecret || webhookSecret.startsWith('your_')) {
+      console.error('[WEBHOOK] RAZORPAY_WEBHOOK_SECRET is not configured — rejecting request');
+      return res.status(500).json({ error: 'Webhook secret not configured on server' });
+    }
 
-      if (expectedSignature !== signature) {
-        return res.status(400).json({ error: 'Invalid webhook signature' });
-      }
+    if (!signature) {
+      return res.status(400).json({ error: 'Missing webhook signature header' });
+    }
+
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(eventPayload)))
+      .digest('hex');
+
+    if (expectedSignature !== signature) {
+      return res.status(400).json({ error: 'Invalid webhook signature' });
     }
 
     const { event, payload } = eventPayload;

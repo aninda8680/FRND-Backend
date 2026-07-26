@@ -19,6 +19,10 @@ if (process.env.NODE_ENV === 'production') {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust Render's reverse proxy — required so req.ip returns the real client IP
+// Without this, all rate-limiting and flagging would track the load-balancer IP instead
+app.set('trust proxy', 1);
+
 // Allowed origins for the main dating app (comma-separated list in env)
 const ADMIN_PANEL_ORIGIN = process.env.ADMIN_PANEL_ORIGIN || 'http://localhost:3000';
 const APP_ORIGINS = (process.env.APP_ORIGINS || 'http://localhost:3000,http://localhost:5173')

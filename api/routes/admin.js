@@ -18,6 +18,7 @@ const Like = require('../models/Like');
 const { getSignedPreviewUrl } = require('../utils/uploader');
 
 const { adminAuthRequired, JWT_SECRET } = require('../middleware/auth');
+const redis = require('../utils/redis');
 
 const ADMIN_PASSWORD_MIN_LENGTH = 12;
 const DEFAULT_PAGE_LIMIT = 50;
@@ -160,10 +161,11 @@ router.post('/auth/signup', async (req, res) => {
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // Verify against hardcoded email allowlist in env (generic rejection — don't reveal allowlist)
+    // Verify against hardcoded email allowlist in env
+    // Generic rejection — avoids revealing whether a given email is on the allowlist
     const allowlist = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
     if (!allowlist.includes(cleanEmail)) {
-      return res.status(400).json({ error: 'Access denied: unauthorized admin email' });
+      return res.status(400).json({ error: 'Registration failed' });
     }
 
     // One-time signup: reject if account already exists
@@ -192,6 +194,18 @@ router.post('/auth/login', async (req, res) => {
     const { email, password, commonPass } = req.body;
     if (!email || !password || !commonPass) {
       return res.status(400).json({ error: 'Required: email, password, and common password' });
+    }
+
+    // Brute force protection: max 5 attempts per IP per 15 minutes, hard lock at 10
+    const ip = req.ip || '127.0.0.1';
+    const bruteKey = `admin_login_attempts:${ip}`;
+    const attempts = await redis.incr(bruteKey);
+    if (attempts === 1) await redis.expire(bruteKey, 900);
+    if (attempts > 10) {
+      return res.status(429).json({ error: 'Too many login attempts. Your IP has been temporarily locked.' });
+    }
+    if (attempts > 5) {
+      return res.status(429).json({ error: 'Too many failed login attempts. Try again in 15 minutes.' });
     }
 
     const cleanEmail = email.trim().toLowerCase();
@@ -227,6 +241,9 @@ router.post('/auth/login', async (req, res) => {
 
     admin.lastLoginAt = new Date();
     await admin.save();
+
+    // Clear brute-force counter on successful login
+    await redis.del(bruteKey);
 
     await logAdminAction(admin._id, 'login', null, { ip: req.ip });
 

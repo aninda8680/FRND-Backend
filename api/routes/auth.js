@@ -27,9 +27,12 @@ function generateOTP() {
 
 // Helper to send email OTP (console fallback + Resend API if configured)
 async function sendOTPEmail(email, otp) {
-  console.log(`\n==================================================`);
-  console.log(`[EMAIL OTP] To: ${email} | OTP Code: ${otp}`);
-  console.log(`==================================================\n`);
+  // Only log OTP in non-production environments to prevent log exposure
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`\n==================================================`);
+    console.log(`[DEV OTP] To: ${email} | OTP Code: ${otp}`);
+    console.log(`==================================================\n`);
+  }
 
   const apiKey = process.env.EMAIL_API_KEY;
   const fromEmail = process.env.EMAIL_FROM || 'onboarding@resend.dev';
@@ -110,6 +113,7 @@ router.post('/signup', async (req, res) => {
     if (existingEmail) {
       return res.status(400).json({ error: 'Email already registered' });
     }
+    
     const existingUsername = await User.findOne({ username: finalUsername });
     if (existingUsername) {
       return res.status(400).json({ error: 'Username already taken' });
@@ -186,7 +190,7 @@ router.post('/signup', async (req, res) => {
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
@@ -397,7 +401,7 @@ router.post('/login', async (req, res) => {
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
@@ -434,6 +438,15 @@ router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
     if (!email || typeof email !== 'string' || !email.includes('@')) {
       return res.status(400).json({ error: 'A valid email is required' });
+    }
+
+    // Rate limit: max 3 reset requests per IP per 15 minutes
+    const ip = req.ip || '127.0.0.1';
+    const resetRateKey = `pwreset_ip:${ip}`;
+    const resetCount = await redis.incr(resetRateKey);
+    if (resetCount === 1) await redis.expire(resetRateKey, 900);
+    if (resetCount > 3) {
+      return res.status(429).json({ error: 'Too many password reset requests. Please try again in 15 minutes.' });
     }
 
     const cleanEmail = email.trim().toLowerCase();
@@ -504,7 +517,7 @@ router.post('/forgot-password', async (req, res) => {
 // Serves a beautiful, mobile-friendly HTML form to reset the password directly in the browser.
 router.get('/reset-password', async (req, res) => {
   try {
-    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'nonce-rpx123'; style-src 'self' 'unsafe-inline'");
     res.send(`
 <!DOCTYPE html>
 <html lang="en">
