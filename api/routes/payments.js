@@ -195,7 +195,7 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'Subscription record not found' });
     }
 
-    const { key_secret } = getRazorpayInstance();
+    const { instance, key_id, key_secret } = getRazorpayInstance();
 
     // HMAC Signature Validation for Razorpay Subscriptions
     let isValid = false;
@@ -209,8 +209,19 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
         .update(body.toString())
         .digest('hex');
       isValid = (expectedSignature === razorpay_signature);
+    } else if (!key_id.startsWith('rzp_test_your_') && !key_secret.startsWith('your_')) {
+      // Direct API verification from Razorpay servers if signature is omitted
+      try {
+        const sub = await instance.subscriptions.fetch(razorpay_subscription_id);
+        if (sub && (sub.status === 'active' || sub.status === 'authenticated' || sub.paid_count > 0)) {
+          isValid = true;
+        }
+      } catch (subErr) {
+        console.error('[RAZORPAY API FETCH ERROR]:', subErr.message);
+        isValid = false;
+      }
     } else {
-      // If client sends just subscription_id on immediate activation callback
+      // Fallback for local simulation mode
       isValid = true;
     }
 
