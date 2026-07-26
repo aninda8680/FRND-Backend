@@ -287,6 +287,8 @@ Fetch the authenticated user's own full profile. Requires authentication cookie.
     "name": "John Doe",
     "age": 20,
     "gender": "male",
+    "height": 178,
+    "sexualOrientation": "straight",
     "school": "Adamas University",
     "course": "CSE",
     "bio": "My bio",

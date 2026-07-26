@@ -64,8 +64,9 @@ router.post('/upload/picture', authRequired, uploadPicture.single('picture'), ha
 
     // Magic-byte validation: verify actual file content matches claimed MIME type
     // Prevents MIME spoofing (uploading .exe/.php with Content-Type: image/jpeg)
-    const { fileTypeFromBuffer } = await import('file-type');
-    const detected = await fileTypeFromBuffer(file.buffer);
+    const fileTypeModule = await import('file-type');
+    const ft = fileTypeModule.default || fileTypeModule;
+    const detected = await ft.fromBuffer(file.buffer);
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!detected || !allowedMimeTypes.includes(detected.mime)) {
       return res.status(400).json({ error: 'Invalid file content. Only real JPEG, PNG, WEBP, or GIF images are allowed.' });
