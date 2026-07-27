@@ -533,6 +533,67 @@ router.post('/pass/:targetId', authRequired, handleDislikeAction);
 router.get('/likes/received', authRequired, getReceivedLikes);
 router.get('/likes/incoming', authRequired, getReceivedLikes);
 
+// GET /api/likes/given & GET /api/likes/sent
+// Returns history of all accounts liked/superliked in the past by the authenticated user.
+async function getGivenLikes(req, res) {
+  try {
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+
+    // 1. Get blocked user IDs (both directions)
+    const blocks = await Block.find({
+      $or: [{ blockerId: userId }, { blockedId: userId }]
+    });
+    const blockedUserIds = blocks.map(b => b.blockerId.equals(userId) ? b.blockedId : b.blockerId);
+
+    // 2. Query sent likes
+    const filter = {
+      fromUserId: userId,
+      toUserId: { $nin: blockedUserIds }
+    };
+
+    const [sentLikes, total] = await Promise.all([
+      Like.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Like.countDocuments(filter)
+    ]);
+
+    // 3. Populate target user profiles
+    const likes = await Promise.all(sentLikes.map(async (l) => {
+      const targetUser = await User.findById(l.toUserId)
+        .select('name age school course gender pictures bio hobbies skills identityStatus badges tier');
+      if (!targetUser || targetUser.banned) return null;
+
+      return {
+        likeId: l._id,
+        type: l.type || 'like',
+        likedAt: l.createdAt,
+        profile: targetUser
+      };
+    }));
+
+    const validLikes = likes.filter(Boolean);
+
+    res.json({
+      totalCount: total,
+      page,
+      limit,
+      likes: validLikes
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error fetching sent likes history' });
+  }
+}
+
+router.get('/likes/given', authRequired, getGivenLikes);
+router.get('/likes/sent', authRequired, getGivenLikes);
+
 // ------------------------------------------------------------------
 // 4. MATCHES LIST
 // ------------------------------------------------------------------
