@@ -141,10 +141,74 @@ const userSchema = new mongoose.Schema({
     type: Date
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
 // Text index on bio, hobbies, and skills
 userSchema.index({ bio: 'text', hobbies: 'text', skills: 'text' });
+
+// Virtual property to calculate exact profile completion percentage (0 - 100%)
+userSchema.virtual('profileCompletionPercentage').get(function() {
+  let score = 0;
+
+  // 1. Profile Pictures: 5% per picture (up to 20% max for 4 pictures)
+  if (Array.isArray(this.pictures) && this.pictures.length > 0) {
+    score += Math.min(20, this.pictures.length * 5);
+  }
+
+  // 2. Full Name: 10%
+  if (this.name && this.name.trim().length > 0) {
+    score += 10;
+  }
+
+  // 3. Bio: 15%
+  if (this.bio && this.bio.trim().length > 0) {
+    score += 15;
+  }
+
+  // 4. Age: 5%
+  if (this.age && typeof this.age === 'number' && this.age >= 18) {
+    score += 5;
+  }
+
+  // 5. Gender: 5%
+  if (this.gender) {
+    score += 5;
+  }
+
+  // 6. Height: 5%
+  if (this.height && typeof this.height === 'number') {
+    score += 5;
+  }
+
+  // 7. School & Course: 10% (5% each)
+  if (this.school && this.school.trim().length > 0) score += 5;
+  if (this.course && this.course.trim().length > 0) score += 5;
+
+  // 8. Hobbies: 10%
+  if (Array.isArray(this.hobbies) && this.hobbies.length > 0) {
+    score += 10;
+  }
+
+  // 9. Skills: 5%
+  if (Array.isArray(this.skills) && this.skills.length > 0) {
+    score += 5;
+  }
+
+  // 10. Looking For (dating/friends): 5%
+  if (this.lookingFor) {
+    score += 5;
+  }
+
+  // 11. Sexual Orientation: 5%
+  if (this.sexualOrientation) {
+    score += 5;
+  }
+
+  // Total max = 20 + 10 + 15 + 5 + 5 + 5 + 5 + 5 + 10 + 5 + 5 + 5 = 100%
+  return Math.min(100, score);
+});
 
 module.exports = mongoose.model('User', userSchema);

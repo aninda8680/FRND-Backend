@@ -254,7 +254,7 @@ router.get('/discover', authRequired, async (req, res) => {
     }
 
     const candidateProfiles = await User.find(query)
-      .select('name age school course gender pictures bio hobbies skills lookingFor identityStatus badges tier subscriptionExpiresAt');
+      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt');
 
     // F. Probability-based Feed Algorithm with 6x/3x/1x Profile Boost
     const now = new Date();
@@ -500,7 +500,7 @@ async function getReceivedLikes(req, res) {
     // If Silver or Gold subscription active, populate full profiles of users who liked them
     const likers = await Promise.all(incomingLikes.map(async (l) => {
       const likerUser = await User.findById(l.fromUserId)
-        .select('name age school course gender pictures bio hobbies skills identityStatus badges tier');
+        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier');
       if (!likerUser || likerUser.banned) return null;
 
       return {
@@ -566,7 +566,7 @@ async function getGivenLikes(req, res) {
     // 3. Populate target user profiles
     const likes = await Promise.all(sentLikes.map(async (l) => {
       const targetUser = await User.findById(l.toUserId)
-        .select('name age school course gender pictures bio hobbies skills identityStatus badges tier');
+        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier');
       if (!targetUser || targetUser.banned) return null;
 
       return {

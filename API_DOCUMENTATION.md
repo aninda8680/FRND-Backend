@@ -301,7 +301,8 @@ Fetch the authenticated user's own full profile. Requires authentication cookie.
     "isPremium": false,
     "tier": "free",
     "badges": [],
-    "openFlagCount": 0
+    "openFlagCount": 0,
+    "profileCompletionPercentage": 95
   }
 }
 ```
