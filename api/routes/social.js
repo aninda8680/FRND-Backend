@@ -446,10 +446,92 @@ async function handleDislikeAction(req, res) {
   }
 }
 
+// GET /api/likes/received & GET /api/likes/incoming
+// Returns incoming likes that other users have sent to the authenticated user.
+// - Free users: returns total like count only (`hasAccess: false`, `isLocked: true`, `likers: []`).
+// - Silver / Gold subscription users: returns total count AND full profiles of likers (`hasAccess: true`, `isLocked: false`, `likers: [...]`).
+async function getReceivedLikes(req, res) {
+  try {
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Determine active subscription status
+    const now = new Date();
+    const isSubActive = user.tier && user.tier !== 'free' && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > now);
+
+    // 1. Get blocked user IDs (both directions)
+    const blocks = await Block.find({
+      $or: [{ blockerId: userId }, { blockedId: userId }]
+    });
+    const blockedUserIds = blocks.map(b => b.blockerId.equals(userId) ? b.blockedId : b.blockerId);
+
+    // 2. Get existing matches (already matched users)
+    const matches = await Match.find({
+      $or: [{ userA: userId }, { userB: userId }]
+    });
+    const matchedUserIds = matches.map(m => m.userA.equals(userId) ? m.userB : m.userA);
+
+    // Exclude blocked & already matched users
+    const excludedIds = [...blockedUserIds, ...matchedUserIds];
+
+    // 3. Find incoming likes sent TO this user
+    const incomingLikes = await Like.find({
+      toUserId: userId,
+      fromUserId: { $nin: excludedIds }
+    }).sort({ createdAt: -1 });
+
+    const totalLikesCount = incomingLikes.length;
+
+    // If free tier, return total count only — keep profiles hidden/locked
+    if (!isSubActive) {
+      return res.json({
+        totalLikesCount,
+        hasAccess: false,
+        isLocked: true,
+        tier: user.tier || 'free',
+        message: 'Upgrade to Silver or Gold Pass to unlock and see full profiles of users who liked you!',
+        likers: []
+      });
+    }
+
+    // If Silver or Gold subscription active, populate full profiles of users who liked them
+    const likers = await Promise.all(incomingLikes.map(async (l) => {
+      const likerUser = await User.findById(l.fromUserId)
+        .select('name age school course gender pictures bio hobbies skills identityStatus badges tier');
+      if (!likerUser || likerUser.banned) return null;
+
+      return {
+        likeId: l._id,
+        type: l.type || 'like',
+        likedAt: l.createdAt,
+        profile: likerUser
+      };
+    }));
+
+    const validLikers = likers.filter(Boolean);
+
+    res.json({
+      totalLikesCount: validLikers.length,
+      hasAccess: true,
+      isLocked: false,
+      tier: user.tier,
+      likers: validLikers
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error fetching received likes' });
+  }
+}
+
 router.post('/like/:targetId', authRequired, (req, res) => handleLikeAction(req, res, 'like'));
 router.post('/superlike/:targetId', authRequired, (req, res) => handleLikeAction(req, res, 'superlike'));
 router.post('/dislike/:targetId', authRequired, handleDislikeAction);
 router.post('/pass/:targetId', authRequired, handleDislikeAction);
+router.get('/likes/received', authRequired, getReceivedLikes);
+router.get('/likes/incoming', authRequired, getReceivedLikes);
 
 // ------------------------------------------------------------------
 // 4. MATCHES LIST

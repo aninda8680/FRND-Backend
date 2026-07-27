@@ -627,6 +627,60 @@ Dislike or pass a profile (Left Swipe). Requires authentication cookie or Bearer
 
 ---
 
+#### GET `/api/likes/received`
+#### GET `/api/likes/incoming`
+
+Fetch incoming likes that other users have sent to the authenticated user ("Who Liked You"). Requires authentication cookie or Bearer token.
+
+> **Tier Gated Behavior**:
+> - **Free Tier (`tier: "free"`)**: Returns total incoming like count (`totalLikesCount`). Detailed profiles are **hidden/locked** (`isLocked: true`, `hasAccess: false`, `likers: []`).
+> - **Silver / Gold Tier Subscriptions**: Returns total count AND **full profiles of every user who liked you** (`isLocked: false`, `hasAccess: true`, `likers: [...]`).
+
+**Free Tier Response (200 OK):**
+```json
+{
+  "totalLikesCount": 14,
+  "hasAccess": false,
+  "isLocked": true,
+  "tier": "free",
+  "message": "Upgrade to Silver or Gold Pass to unlock and see full profiles of users who liked you!",
+  "likers": []
+}
+```
+
+**Silver / Gold Subscriber Response (200 OK):**
+```json
+{
+  "totalLikesCount": 14,
+  "hasAccess": true,
+  "isLocked": false,
+  "tier": "gold",
+  "likers": [
+    {
+      "likeId": "651a2b3c4d5e6f7a8b9c0d88",
+      "type": "like",
+      "likedAt": "2026-07-27T12:00:00.000Z",
+      "profile": {
+        "_id": "651a2b3c4d5e6f7a8b9c0d2f",
+        "name": "Priya Sharma",
+        "age": 21,
+        "school": "Adamas University",
+        "course": "B.Tech CSE",
+        "gender": "female",
+        "pictures": [{ "url": "https://...", "fileId": "file_456" }],
+        "bio": "Coffee lover & software enthusiast",
+        "hobbies": ["Music", "Reading"],
+        "skills": ["Python"],
+        "identityStatus": "verified",
+        "badges": []
+      }
+    }
+  ]
+}
+```
+
+---
+
 #### GET `/api/matches`
 
 List all mutual matches. Requires authentication cookie.
