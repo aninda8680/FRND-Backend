@@ -11,7 +11,15 @@ const connectDB = async (uri) => {
   }
 
   try {
-    const conn = await mongoose.connect(mongoUri);
+    const conn = await mongoose.connect(mongoUri, {
+      // Right-sized for ~250 concurrent users on Render Free Tier
+      // 20 max connections: enough burst headroom without wasting RAM
+      // 2 min connections: keeps 2 warm instead of 10, saves ~8MB idle RAM
+      maxPoolSize: 20,
+      minPoolSize: 2,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000
+    });
     console.log(`MongoDB Connected: ${conn.connection.host}`);
     return conn;
   } catch (error) {

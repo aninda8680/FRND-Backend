@@ -1,3 +1,7 @@
+// libuv threadpool: 16 threads is sufficient for 250 concurrent users on 0.1 vCPU free tier
+// 128 threads waste ~112MB RAM for zero throughput gain at this scale
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '16';
+
 const express = require('express');
 const helmet = require('helmet');
 const path = require('path');
@@ -127,9 +131,33 @@ async function startServer() {
     if (process.env.NODE_ENV !== 'test') {
       await connectDB();
     }
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`API Service listening on port ${PORT}`);
     });
+
+    // Graceful Shutdown Handlers (SIGTERM / SIGINT)
+    const gracefulShutdown = async (signal) => {
+      console.log(`[SYS] ${signal} received. Closing HTTP server...`);
+      server.close(async () => {
+        try {
+          const mongoose = require('mongoose');
+          const redis = require('./utils/redis');
+          if (mongoose.connection.readyState >= 1) {
+            await mongoose.connection.close(false);
+          }
+          await redis.quit();
+          console.log('[SYS] API Service graceful shutdown complete.');
+          process.exit(0);
+        } catch (e) {
+          console.error('[SYS ERROR] Error during graceful shutdown:', e.message);
+          process.exit(1);
+        }
+      });
+      setTimeout(() => process.exit(1), 10000);
+    };
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   } catch (err) {
     console.error('API service failed to start:', err.message);
     process.exit(1);

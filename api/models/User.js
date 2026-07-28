@@ -167,6 +167,12 @@ const userSchema = new mongoose.Schema({
 // Text index on bio, hobbies, and skills
 userSchema.index({ bio: 'text', hobbies: 'text', skills: 'text' });
 
+// Compound index for Feed Discovery queries (gender, banned, identityStatus, createdAt)
+userSchema.index({ gender: 1, banned: 1, identityStatus: 1, createdAt: -1 });
+
+// Index for Tier filtering & Subscriptions
+userSchema.index({ tier: 1, subscriptionStatus: 1 });
+
 // Virtual property to calculate exact profile completion percentage (0 - 100%)
 userSchema.virtual('profileCompletionPercentage').get(function() {
   let score = 0;

@@ -4,7 +4,7 @@
   "description": "Dating App REST API service",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node --max-old-space-size=384 server.js"
   },
   "dependencies": {
     "@upstash/ratelimit": "^1.0.0",

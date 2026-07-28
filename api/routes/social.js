@@ -242,7 +242,7 @@ router.put('/users/me', authRequired, async (req, res) => {
 router.get('/discover', authRequired, async (req, res) => {
   try {
     const userId = new mongoose.Types.ObjectId(req.user.id);
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).lean();
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -251,25 +251,18 @@ router.get('/discover', authRequired, async (req, res) => {
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
 
-    // A. Find all blocked users (both ways)
-    const blocks = await Block.find({
-      $or: [{ blockerId: userId }, { blockedId: userId }]
-    });
-    const blockedUserIds = blocks.map(b => b.blockerId.equals(userId) ? b.blockedId : b.blockerId);
-
-    // B. Find existing likes & dislikes sent by the user
-    const [sentLikes, sentDislikes] = await Promise.all([
-      Like.find({ fromUserId: userId }),
-      Dislike.find({ fromUserId: userId })
+    // A-C: Fetch blocks, likes/dislikes, matches in parallel — 1 round-trip instead of 4
+    const [blocks, sentLikes, sentDislikes, matches] = await Promise.all([
+      Block.find({ $or: [{ blockerId: userId }, { blockedId: userId }] }).lean(),
+      Like.find({ fromUserId: userId }).select('toUserId').lean(),
+      Dislike.find({ fromUserId: userId }).select('toUserId').lean(),
+      Match.find({ $or: [{ userA: userId }, { userB: userId }] }).lean()
     ]);
+
+    const blockedUserIds = blocks.map(b => String(b.blockerId) === String(userId) ? b.blockedId : b.blockerId);
     const likedUserIds = sentLikes.map(l => l.toUserId);
     const dislikedUserIds = sentDislikes.map(d => d.toUserId);
-
-    // C. Find existing matches
-    const matches = await Match.find({
-      $or: [{ userA: userId }, { userB: userId }]
-    });
-    const matchedUserIds = matches.map(m => m.userA.equals(userId) ? m.userB : m.userA);
+    const matchedUserIds = matches.map(m => String(m.userA) === String(userId) ? m.userB : m.userA);
 
     // D. Build complete exclusion list (Self, Blocked, Liked, Disliked, Matched)
     const excludedIds = [userId, ...blockedUserIds, ...likedUserIds, ...dislikedUserIds, ...matchedUserIds];
@@ -286,27 +279,29 @@ router.get('/discover', authRequired, async (req, res) => {
       else if (user.gender === 'female') query.gender = 'male';
     }
 
+    // .lean() = plain JS objects, ~70% less RAM than Mongoose docs
+    // .limit(200) = safety cap: with 700 users we never need to load all into RAM
+    //               boosting algo works perfectly within a 200-candidate pool
     const candidateProfiles = await User.find(query)
-      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt');
+      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt')
+      .limit(200)
+      .lean();
 
     // F. Probability-based Feed Algorithm with 6x/3x/1x Profile Boost
     const now = new Date();
     const scoredProfiles = candidateProfiles.map(p => {
       const isSubActive = p.tier && p.tier !== 'free' && (!p.subscriptionExpiresAt || new Date(p.subscriptionExpiresAt) > now);
       const activeTier = isSubActive ? p.tier : 'free';
-      
+
       // Boost multiplier: Gold = 6x, Silver = 3x, Free = 1x
       const boostMultiplier = activeTier === 'gold' ? 6 : (activeTier === 'silver' ? 3 : 1);
-      
-      // Weighted ranking score: Higher boost tier profiles are far more likely to rank near the top
+
+      // Weighted ranking score
       const weightedScore = (boostMultiplier * 1000) + Math.floor(Math.random() * 500);
-      
-      const doc = p.toObject();
+
+      const doc = { ...p };
       delete doc.subscriptionExpiresAt;
-      return {
-        profile: doc,
-        score: weightedScore
-      };
+      return { profile: doc, score: weightedScore };
     });
 
     // Sort by weighted rank score descending
@@ -321,6 +316,7 @@ router.get('/discover', authRequired, async (req, res) => {
     res.status(500).json({ error: 'Server error during discovery fetch' });
   }
 });
+
 
 // ------------------------------------------------------------------
 // 3. LIKES & SUPERLIKES
@@ -457,10 +453,14 @@ async function handleLikeAction(req, res, actionType) {
 
       const notifReq = transport.request(targetUrl, {
         method: 'POST',
+        timeout: 1500,
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(dataString)
         }
+      });
+      notifReq.setTimeout(1500, () => {
+        notifReq.destroy();
       });
       notifReq.on('error', (e) => console.warn('[SOCKET NOTIF DISPATCH WARN]:', e.message));
       notifReq.write(dataString);
@@ -527,14 +527,14 @@ async function getReceivedLikes(req, res) {
     // 1. Get blocked user IDs (both directions)
     const blocks = await Block.find({
       $or: [{ blockerId: userId }, { blockedId: userId }]
-    });
-    const blockedUserIds = blocks.map(b => b.blockerId.equals(userId) ? b.blockedId : b.blockerId);
+    }).lean();
+    const blockedUserIds = blocks.map(b => String(b.blockerId) === String(userId) ? b.blockedId : b.blockerId);
 
     // 2. Get existing matches (already matched users)
     const matches = await Match.find({
       $or: [{ userA: userId }, { userB: userId }]
-    });
-    const matchedUserIds = matches.map(m => m.userA.equals(userId) ? m.userB : m.userA);
+    }).lean();
+    const matchedUserIds = matches.map(m => String(m.userA) === String(userId) ? m.userB : m.userA);
 
     // Exclude blocked & already matched users
     const excludedIds = [...blockedUserIds, ...matchedUserIds];
@@ -543,7 +543,7 @@ async function getReceivedLikes(req, res) {
     const incomingLikes = await Like.find({
       toUserId: userId,
       fromUserId: { $nin: excludedIds }
-    }).sort({ createdAt: -1 });
+    }).sort({ createdAt: -1 }).lean();
 
     const totalLikesCount = incomingLikes.length;
 
@@ -877,7 +877,8 @@ router.get('/posts', authRequired, async (req, res) => {
     const posts = await AnonymousPost.find()
       .sort({ postedAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
     const total = await AnonymousPost.countDocuments();
 
@@ -937,7 +938,8 @@ router.get('/conversations/:conversationId/messages', authRequired, async (req, 
       Message.find({ conversationId })
         .sort({ timestamp: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Message.countDocuments({ conversationId })
     ]);
 

@@ -90,7 +90,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
       lowFlags,
       totalReports,
 
-      paidPayments
+      paymentAgg
     ] = await Promise.all([
       User.countDocuments({}),
       User.countDocuments({ $or: [{ tier: 'free' }, { tier: { $exists: false } }] }),
@@ -121,13 +121,51 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
       AccountFlag.countDocuments({ status: 'open', severity: 'low' }),
       Report.countDocuments({}),
 
-      Payment.find({ status: { $in: ['paid', 'active'] } })
+      Payment.aggregate([
+        { $match: { status: { $in: ['paid', 'active'] } } },
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: '$amount' },
+            silverRevenue: {
+              $sum: { $cond: [{ $eq: ['$tier', 'silver'] }, '$amount', 0] }
+            },
+            goldRevenue: {
+              $sum: { $cond: [{ $eq: ['$tier', 'gold'] }, '$amount', 0] }
+            },
+            activeSubscriptionsCount: {
+              $sum: {
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: ['$status', 'active'] },
+                      { $gt: ['$expiresAt', new Date()] }
+                    ]
+                  },
+                  1,
+                  0
+                ]
+              }
+            },
+            totalTransactionsCount: { $sum: 1 }
+          }
+        }
+      ])
     ]);
 
-    const totalRevenue = paidPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
-    const silverRevenue = paidPayments.filter(p => p.tier === 'silver').reduce((acc, p) => acc + (p.amount || 0), 0);
-    const goldRevenue = paidPayments.filter(p => p.tier === 'gold').reduce((acc, p) => acc + (p.amount || 0), 0);
-    const activeSubscriptions = paidPayments.filter(p => p.status === 'active' || (p.expiresAt && new Date(p.expiresAt) > new Date())).length;
+    const payStats = (paymentAgg && paymentAgg[0]) ? paymentAgg[0] : {
+      totalRevenue: 0,
+      silverRevenue: 0,
+      goldRevenue: 0,
+      activeSubscriptionsCount: 0,
+      totalTransactionsCount: 0
+    };
+
+    const totalRevenue = payStats.totalRevenue || 0;
+    const silverRevenue = payStats.silverRevenue || 0;
+    const goldRevenue = payStats.goldRevenue || 0;
+    const activeSubscriptions = payStats.activeSubscriptionsCount || 0;
+    const totalTransactionsCount = payStats.totalTransactionsCount || 0;
 
     res.json({
       overview: {
@@ -149,7 +187,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
         silverRevenueINR: silverRevenue,
         goldRevenueINR: goldRevenue,
         activeSubscriptionsCount: activeSubscriptions,
-        totalTransactionsCount: paidPayments.length
+        totalTransactionsCount: totalTransactionsCount
       },
       social: {
         totalLikes,
@@ -177,7 +215,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
         Dislikes: totalDislikes,
         Matches: totalMatches,
         Messages: totalMessages,
-        Payments: paidPayments.length,
+        Payments: totalTransactionsCount,
         Flags: openFlags,
         Reports: totalReports,
         Feedback: totalFeedback,
@@ -581,7 +619,8 @@ router.get('/reports', adminAuthRequired, async (req, res) => {
         .populate('targetUserId', 'username email openFlagCount')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Report.countDocuments({})
     ]);
     res.json({ reports, page, limit, total });
@@ -590,6 +629,7 @@ router.get('/reports', adminAuthRequired, async (req, res) => {
     res.status(500).json({ error: 'Server error fetching reports' });
   }
 });
+
 
 // GET /api/admin/feedback
 router.get('/feedback', adminAuthRequired, async (req, res) => {
@@ -600,7 +640,8 @@ router.get('/feedback', adminAuthRequired, async (req, res) => {
         .populate('userId', 'username email')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Feedback.countDocuments({})
     ]);
     res.json({ feedback, page, limit, total });
@@ -609,6 +650,7 @@ router.get('/feedback', adminAuthRequired, async (req, res) => {
     res.status(500).json({ error: 'Server error fetching feedback' });
   }
 });
+
 
 // POST /api/admin/announce
 router.post('/announce', adminAuthRequired, async (req, res) => {
@@ -762,7 +804,8 @@ router.get('/waitlist', adminAuthRequired, async (req, res) => {
       Waitlist.find({})
         .sort({ joinedAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Waitlist.countDocuments({})
     ]);
     res.json({ entries, page, limit, total });
@@ -782,7 +825,8 @@ router.get('/actions', adminAuthRequired, async (req, res) => {
         .populate('targetUserId', 'username email')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       AdminAction.countDocuments({})
     ]);
     res.json({ actions, page, limit, total });
@@ -919,7 +963,8 @@ router.get('/careers', adminAuthRequired, async (req, res) => {
       CareerApplication.find({})
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       CareerApplication.countDocuments({})
     ]);
 

@@ -4,7 +4,7 @@
   "description": "Dating App real-time Chat Socket service",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node --max-old-space-size=384 server.js"
   },
   "dependencies": {
     "@upstash/redis": "^1.38.0",

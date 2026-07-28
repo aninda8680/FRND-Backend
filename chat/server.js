@@ -1,3 +1,6 @@
+// libuv threadpool: 16 threads is sufficient for 250 concurrent users on 0.1 vCPU free tier
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '16';
+
 const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
@@ -346,6 +349,30 @@ async function startServer() {
     server.listen(CHAT_PORT, () => {
       console.log(`[CHAT] Chat Service listening on port ${CHAT_PORT}`);
     });
+
+    // Graceful Shutdown Handlers (SIGTERM / SIGINT)
+    const gracefulShutdown = async (signal) => {
+      console.log(`[CHAT SYS] ${signal} received. Closing Chat WebSockets & HTTP server...`);
+      io.close();
+      server.close(async () => {
+        try {
+          const mongoose = require('mongoose');
+          if (mongoose.connection.readyState >= 1) {
+            await mongoose.connection.close(false);
+          }
+          await redis.quit();
+          console.log('[CHAT SYS] Chat Service graceful shutdown complete.');
+          process.exit(0);
+        } catch (e) {
+          console.error('[CHAT SYS ERROR] Error during graceful shutdown:', e.message);
+          process.exit(1);
+        }
+      });
+      setTimeout(() => process.exit(1), 10000);
+    };
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   } catch (err) {
     console.error('[CHAT] Chat service failed to start:', err.message);
     process.exit(1);
