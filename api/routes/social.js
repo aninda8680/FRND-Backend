@@ -133,7 +133,7 @@ router.get('/users/me', authRequired, async (req, res) => {
 // PUT /api/users/me
 router.put('/users/me', authRequired, async (req, res) => {
   try {
-    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, tags, pictures, interests, prompts } = req.body;
+    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, tags, pictures, interests, prompts, religion, beliefs } = req.body;
 
     // Input validation
     if (username !== undefined) {
@@ -155,6 +155,12 @@ router.put('/users/me', authRequired, async (req, res) => {
     }
     if (bio !== undefined) {
       if (!validateStringLength(bio, 500)) return res.status(400).json({ error: 'Bio too long (max 500 chars)' });
+    }
+    if (religion !== undefined && !validateStringLength(religion, 100)) {
+      return res.status(400).json({ error: 'Religion too long (max 100 chars)' });
+    }
+    if (beliefs !== undefined && !validateStringLength(beliefs, 200)) {
+      return res.status(400).json({ error: 'Beliefs too long (max 200 chars)' });
     }
     if (school !== undefined && !validateStringLength(school, 150)) {
       return res.status(400).json({ error: 'School name too long (max 150 chars)' });
@@ -191,6 +197,8 @@ router.put('/users/me', authRequired, async (req, res) => {
     if (name !== undefined) allowedUpdates.name = name.trim();
     if (age !== undefined && age !== null && age !== '') allowedUpdates.age = parseInt(age, 10);
     if (bio !== undefined) allowedUpdates.bio = bio.trim();
+    if (religion !== undefined) allowedUpdates.religion = religion.trim();
+    if (beliefs !== undefined) allowedUpdates.beliefs = beliefs.trim();
     if (school !== undefined) allowedUpdates.school = school.trim();
     if (course !== undefined) allowedUpdates.course = course.trim();
     if (height !== undefined && typeof height === 'number') allowedUpdates.height = height;
@@ -283,7 +291,7 @@ router.get('/discover', authRequired, async (req, res) => {
     // .limit(200) = safety cap: with 700 users we never need to load all into RAM
     //               boosting algo works perfectly within a 200-candidate pool
     const candidateProfiles = await User.find(query)
-      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt')
+      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt religion beliefs')
       .limit(200)
       .lean();
 
@@ -562,7 +570,7 @@ async function getReceivedLikes(req, res) {
     // If Silver or Gold subscription active, populate full profiles of users who liked them
     const likers = await Promise.all(incomingLikes.map(async (l) => {
       const likerUser = await User.findById(l.fromUserId)
-        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier');
+        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier religion beliefs');
       if (!likerUser || likerUser.banned) return null;
 
       return {
@@ -628,7 +636,7 @@ async function getGivenLikes(req, res) {
     // 3. Populate target user profiles
     const likes = await Promise.all(sentLikes.map(async (l) => {
       const targetUser = await User.findById(l.toUserId)
-        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier');
+        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier religion beliefs');
       if (!targetUser || targetUser.banned) return null;
 
       return {

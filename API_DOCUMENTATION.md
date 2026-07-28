@@ -91,7 +91,9 @@ Create a new user account.
   "age": 20,
   "gender": "male",
   "lookingFor": "dating",
-  "bio": "Optional bio text"
+  "bio": "Optional bio text",
+  "religion": "Hinduism",
+  "beliefs": "Spiritual & open-minded"
 }
 ```
 
@@ -105,6 +107,8 @@ Create a new user account.
 | `gender` | No | `"male"` \| `"female"` \| `"other"` |
 | `lookingFor` | No | `"friends"` \| `"dating"` |
 | `bio` | No | Max 500 chars |
+| `religion` | No | Max 100 chars |
+| `beliefs` | No | Max 200 chars |
 
 **Response (201 Created):**
 ```json

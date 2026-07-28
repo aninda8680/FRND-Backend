@@ -103,7 +103,7 @@ function validateStringLength(value, maxLength) {
 // POST /api/auth/signup
 router.post('/signup', async (req, res) => {
   try {
-    const { email, username, password, name, age, gender, lookingFor, bio } = req.body;
+    const { email, username, password, name, age, gender, lookingFor, bio, religion, beliefs } = req.body;
 
     // 1. Basic presence validation
     if (!email || !password) {
@@ -119,6 +119,8 @@ router.post('/signup', async (req, res) => {
     if (name && !validateStringLength(name, 100)) return res.status(400).json({ error: 'Name too long (max 100 chars)' });
     if (username && !validateStringLength(username, 50)) return res.status(400).json({ error: 'Username too long (max 50 chars)' });
     if (bio && !validateStringLength(bio, 500)) return res.status(400).json({ error: 'Bio too long (max 500 chars)' });
+    if (religion && !validateStringLength(religion, 100)) return res.status(400).json({ error: 'Religion too long (max 100 chars)' });
+    if (beliefs && !validateStringLength(beliefs, 200)) return res.status(400).json({ error: 'Beliefs too long (max 200 chars)' });
 
     // 3. Generate or sanitise username
     let finalUsername = username ? username.toLowerCase().trim() : '';
@@ -174,6 +176,8 @@ router.post('/signup', async (req, res) => {
       gender,
       lookingFor,
       bio: bio ? bio.trim() : '',
+      religion: religion ? religion.trim() : '',
+      beliefs: beliefs ? beliefs.trim() : '',
       passwordHash,
       emailVerified: false,
       identityStatus: 'not_submitted'

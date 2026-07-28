@@ -91,6 +91,16 @@ const userSchema = new mongoose.Schema({
   sexualOrientation: {
     type: String
   },
+  religion: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  beliefs: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   isPremium: {
     type: Boolean,
     default: false
