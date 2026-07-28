@@ -50,6 +50,10 @@ const redis = {
     const payload = typeof message === 'object' ? JSON.stringify(message) : String(message);
     return await redisClient.publish(channel, payload);
   },
+  quit: async () => {
+    // @upstash/redis is an HTTP REST client (stateless), no persistent TCP connection to close
+    return Promise.resolve();
+  },
   clientStatus: () => ({ isMock: false, connected: true })
 };
 

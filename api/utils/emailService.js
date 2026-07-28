@@ -8,6 +8,16 @@ function maskApiKey(key) {
   return `${key.substring(0, 6)}...${key.substring(key.length - 4)}`;
 }
 
+// Format from address cleanly (prevents malformed double angle brackets like FRND <FRND <email>>)
+function formatFromAddress(email) {
+  if (!email) return 'FRND <onboarding@resend.dev>';
+  const cleaned = email.trim();
+  if (cleaned.includes('<') && cleaned.includes('>')) {
+    return cleaned;
+  }
+  return `FRND <${cleaned}>`;
+}
+
 // Get or initialize EmailConfig from ENV variables or DB
 async function getOrInitEmailConfig() {
   let config = await EmailConfig.findOne({ key: 'default_email_config' });
@@ -47,11 +57,22 @@ async function getOrInitEmailConfig() {
     });
     await config.save();
   } else {
-    // If env contains new keys not yet in DB, merge them cleanly
     let modified = false;
+
+    // Synchronize keys & emails from .env to existing accounts
     rawApiKeys.forEach((key, i) => {
-      const exists = config.accounts.some(acc => acc.apiKey === key);
-      if (!exists) {
+      let acc = config.accounts.find(a => a.index === i);
+      if (acc) {
+        if (acc.apiKey !== key) {
+          acc.apiKey = key;
+          modified = true;
+        }
+        const targetEmail = rawFromEmails[i % rawFromEmails.length] || acc.fromEmail;
+        if (acc.fromEmail !== targetEmail) {
+          acc.fromEmail = targetEmail;
+          modified = true;
+        }
+      } else {
         config.accounts.push({
           index: config.accounts.length,
           label: `Resend Account #${config.accounts.length + 1}`,
@@ -123,19 +144,20 @@ async function sendEmail({ to, subject, html, headers = {} }) {
 
     try {
       const resend = new Resend(account.apiKey);
-      const emailHeaders = {
-        'X-Entity-Ref-ID': crypto.randomUUID(),
-        ...headers
-      };
-
       const recipientList = Array.isArray(to) ? to : [to];
-      const { data, error } = await resend.emails.send({
-        from: `FRND <${account.fromEmail}>`,
+      const fromFormatted = formatFromAddress(account.fromEmail);
+
+      const sendPayload = {
+        from: fromFormatted,
         to: recipientList,
         subject,
-        headers: emailHeaders,
         html
-      });
+      };
+      if (headers && Object.keys(headers).length > 0) {
+        sendPayload.headers = headers;
+      }
+
+      const { data, error } = await resend.emails.send(sendPayload);
 
       if (error) {
         const errStr = typeof error === 'object' ? JSON.stringify(error) : String(error);
@@ -167,8 +189,9 @@ async function sendEmail({ to, subject, html, headers = {} }) {
       config.updatedAt = new Date();
       await config.save();
 
-      console.log(`[EMAIL SUCCESS] Sent email to ${recipientList.join(', ')} via Account #${account.index + 1} (${account.fromEmail})`);
-      return { success: true, accountIndex: account.index, fromEmail: account.fromEmail, data };
+      const resendId = data && data.id ? data.id : 'N/A';
+      console.log(`[EMAIL SUCCESS] Sent email to ${recipientList.join(', ')} via Account #${account.index + 1} (${account.fromEmail}) | Resend ID: ${resendId}`);
+      return { success: true, accountIndex: account.index, fromEmail: account.fromEmail, data, resendId };
     } catch (err) {
       console.error(`[EMAIL EXCEPTION] Account #${account.index + 1} exception:`, err.message);
       lastErrMessage = err.message;

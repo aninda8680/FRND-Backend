@@ -462,7 +462,7 @@ async function handleLikeAction(req, res, actionType) {
       notifReq.setTimeout(1500, () => {
         notifReq.destroy();
       });
-      notifReq.on('error', (e) => console.warn('[SOCKET NOTIF DISPATCH WARN]:', e.message));
+      notifReq.on('error', (e) => console.warn('[SOCKET NOTIF DISPATCH WARN]:', e.message || e.code || 'Chat service offline/timeout'));
       notifReq.write(dataString);
       notifReq.end();
 
