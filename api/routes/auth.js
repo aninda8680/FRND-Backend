@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const User = require('../models/User');
 const AccountFlag = require('../models/AccountFlag');
 const EmailVerification = require('../models/EmailVerification');
@@ -56,6 +57,9 @@ async function sendOTPEmail(email, otp) {
           from: `FRND <${fromEmail}>`,
           to: [email],
           subject: '🔐 Your FRND Verification Code',
+          headers: {
+            'X-Entity-Ref-ID': crypto.randomUUID()
+          },
           html: `
             <div style="background-color: #FDF4E5; padding: 40px 16px; font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-height: 100%;">
               <div style="max-width: 560px; margin: 0 auto; background-color: #FEFDFD; border: 2px solid #040404; border-radius: 24px; box-shadow: 4px 6px 0px #040404; overflow: hidden;">
@@ -541,35 +545,92 @@ router.post('/forgot-password', async (req, res) => {
     const resetLink = `${protocol}://${host}/api/auth/reset-password?token=${token}&email=${encodeURIComponent(cleanEmail)}`;
 
     // Send email with reset link via Resend
-    const apiKey = process.env.EMAIL_API_KEY;
-    const fromEmail = process.env.EMAIL_FROM || 'onboarding@resend.dev';
-    if (apiKey && !apiKey.startsWith('re_your_')) {
-      try {
-        const { Resend } = require('resend');
-        const resend = new Resend(apiKey);
-        await resend.emails.send({
-          from: fromEmail,
-          to: [cleanEmail],
-          subject: 'Reset Your Password',
-          html: `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 32px 24px; border: 1px solid #f0f0f0; border-radius: 12px; color: #2d3748;">
-              <h2 style="font-size: 20px; font-weight: 700; color: #dc2626; margin-top: 0; margin-bottom: 16px;">Password Reset Request</h2>
-              <p style="font-size: 15px; line-height: 1.6; color: #4a5568; margin-bottom: 24px;">We received a request to reset your password. Click the button below to reset it. This link is valid for **10 minutes**.</p>
-              <div style="text-align: center; margin-bottom: 24px;">
-                <a href="${resetLink}" target="_blank" style="background-color: #6366f1; color: #ffffff; padding: 12px 24px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4);">
-                  Reset Password
-                </a>
+    const apiKeys = (process.env.EMAIL_API_KEY || '')
+      .split(',')
+      .map(k => k.trim())
+      .filter(k => k && !k.startsWith('re_your_'));
+
+    const fromEmails = (process.env.EMAIL_FROM || 'onboarding@resend.dev')
+      .split(',')
+      .map(e => e.trim())
+      .filter(Boolean);
+
+    if (apiKeys.length > 0) {
+      const { Resend } = require('resend');
+      for (let i = 0; i < apiKeys.length; i++) {
+        const apiKey = apiKeys[i];
+        const fromEmail = fromEmails[i % fromEmails.length];
+        try {
+          const resend = new Resend(apiKey);
+          await resend.emails.send({
+            from: `FRND <${fromEmail}>`,
+            to: [cleanEmail],
+            subject: '🔑 Reset Your FRND Password',
+            headers: {
+              'X-Entity-Ref-ID': crypto.randomUUID()
+            },
+            html: `
+              <div style="background-color: #FDF4E5; padding: 40px 16px; font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-height: 100%;">
+                <div style="max-width: 560px; margin: 0 auto; background-color: #FEFDFD; border: 2px solid #040404; border-radius: 24px; box-shadow: 4px 6px 0px #040404; overflow: hidden;">
+                  
+                  <!-- Header Branding -->
+                  <div style="padding: 32px 32px 24px; border-bottom: 2px solid #FDF4E5; background-color: #FEFDFD; text-align: center;">
+                    <h2 style="margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.04em; color: #040404; text-transform: uppercase;">
+                      FR<span style="color: #A41534;">ND</span>
+                    </h2>
+                    <p style="margin: 4px 0 0; font-family: Georgia, serif; font-style: italic; color: #A41534; font-size: 15px;">
+                      Campus friends, made intentional.
+                    </p>
+                  </div>
+
+                  <!-- Body Content -->
+                  <div style="padding: 32px;">
+                    <h1 style="margin: 0 0 18px; font-size: 24px; font-weight: 800; color: #040404; text-transform: uppercase; letter-spacing: -0.02em; line-height: 1.25;">
+                      Password Reset Request 🔑
+                    </h1>
+
+                    <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
+                      We received a request to reset your password. Click the button below to set a new password. This link is valid for <strong>10 minutes</strong>.
+                    </p>
+
+                    <!-- Reset Button -->
+                    <div style="margin: 24px 0; text-align: left;">
+                      <a href="${resetLink}" target="_blank"
+                         style="display: inline-block; background-color: #A41534; color: #FEFDFD; text-decoration: none; padding: 14px 28px; border-radius: 9999px; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.12em; border: 2px solid #040404; box-shadow: 3px 3px 0px #040404;">
+                        Reset Password →
+                      </a>
+                    </div>
+
+                    <p style="margin: 20px 0 0; font-size: 13px; line-height: 1.6; color: #665853; word-break: break-all;">
+                      If the button doesn't work, copy and paste this URL into your browser:<br>
+                      <a href="${resetLink}" style="color: #A41534; font-weight: 600;">${resetLink}</a>
+                    </p>
+                  </div>
+
+                  <!-- Footer -->
+                  <div style="padding: 24px 32px; background-color: #040404; color: #FEFDFD;">
+                    <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #E3D9CF;">
+                      If you didn't request a password reset, you can safely ignore this email.
+                    </p>
+
+                    <p style="margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: #E3D9CF;">
+                      Need help? Contact
+                      <a href="mailto:contact@frnd.buzz" style="color: #A41534; text-decoration: none; font-weight: 700;">contact@frnd.buzz</a>.
+                    </p>
+
+                    <p style="margin: 14px 0 0; font-size: 11px; color: #8B7B74; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;">
+                      © ${new Date().getFullYear()} FRND. All rights reserved.
+                    </p>
+                  </div>
+
+                </div>
               </div>
-              <p style="font-size: 13px; line-height: 1.6; color: #718096; margin-bottom: 24px; word-break: break-all;">If the button doesn't work, copy and paste this link into your browser:<br> <a href="${resetLink}" style="color: #6366f1;">${resetLink}</a></p>
-              <p style="font-size: 14px; line-height: 1.6; color: #718096; margin-bottom: 24px; border-top: 1px solid #edf2f7; padding-top: 16px;">If you did not request this password reset, you can safely ignore this email.</p>
-              <div style="text-align: center;">
-                <span style="font-size: 12px; color: #a0aec0;">College Dating App Team</span>
-              </div>
-            </div>
-          `
-        });
-      } catch (emailErr) {
-        console.error('[RESET EMAIL EXCEPTION] Failed to send reset link:', emailErr.message);
+            `
+          });
+          break; // Sent successfully
+        } catch (emailErr) {
+          console.error(`[RESET EMAIL EXCEPTION key #${i + 1}]:`, emailErr.message);
+        }
       }
     }
 

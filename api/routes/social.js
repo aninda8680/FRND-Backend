@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const User = require('../models/User');
 const Like = require('../models/Like');
 const Dislike = require('../models/Dislike');
@@ -1041,6 +1042,9 @@ router.post('/waitlist', async (req, res) => {
               from: `FRND <${fromEmail}>`,
               to: [cleanEmail],
               subject: "🎉 Welcome to the FRND Waitlist!",
+              headers: {
+                'X-Entity-Ref-ID': crypto.randomUUID()
+              },
               html: `
                 <div style="background-color: #FDF4E5; padding: 40px 16px; font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-height: 100%;">
                   <div style="max-width: 560px; margin: 0 auto; background-color: #FEFDFD; border: 2px solid #040404; border-radius: 24px; box-shadow: 4px 6px 0px #040404; overflow: hidden;">
