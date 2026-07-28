@@ -34,28 +34,41 @@ async function sendOTPEmail(email, otp) {
     console.log(`==================================================\n`);
   }
 
-  const apiKey = process.env.EMAIL_API_KEY;
-  const fromEmail = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+  const apiKeys = (process.env.EMAIL_API_KEY || '')
+    .split(',')
+    .map(k => k.trim())
+    .filter(k => k && !k.startsWith('re_your_'));
 
-  if (apiKey && !apiKey.startsWith('re_your_')) {
-    try {
-      const { Resend } = require('resend');
-      const resend = new Resend(apiKey);
+  const fromEmails = (process.env.EMAIL_FROM || 'onboarding@resend.dev')
+    .split(',')
+    .map(e => e.trim())
+    .filter(Boolean);
 
-      const { data, error } = await resend.emails.send({
-        from: fromEmail,
-        to: [email],
-        subject: 'Your College Dating App Verification Code',
-        html: `<p>Your verification code is <strong>${otp}</strong>. It will expire in 10 minutes.</p>`
-      });
+  if (apiKeys.length > 0) {
+    const { Resend } = require('resend');
 
-      if (error) {
-        console.error('[RESEND ERROR] Failed to send email:', error);
-      } else {
-        console.log('[RESEND SUCCESS] Email sent successfully:', data);
+    for (let i = 0; i < apiKeys.length; i++) {
+      const apiKey = apiKeys[i];
+      const fromEmail = fromEmails[i % fromEmails.length];
+      try {
+        const resend = new Resend(apiKey);
+        const { data, error } = await resend.emails.send({
+          from: fromEmail,
+          to: [email],
+          subject: 'Your College Dating App Verification Code',
+          html: `<p>Your verification code is <strong>${otp}</strong>. It will expire in 10 minutes.</p>`
+        });
+
+        if (error) {
+          console.error(`[RESEND ERROR key #${i + 1}] Failed:`, error);
+          continue; // Automatic failover: try next API key in list
+        } else {
+          console.log(`[RESEND SUCCESS key #${i + 1}] Sent:`, data);
+          break; // Sent successfully, exit loop
+        }
+      } catch (err) {
+        console.error(`[RESEND EXCEPTION key #${i + 1}]:`, err.message);
       }
-    } catch (err) {
-      console.error('[RESEND EXCEPTION] Failed to send email via Resend SDK:', err.message);
     }
   }
 }
