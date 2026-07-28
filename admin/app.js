@@ -258,15 +258,145 @@ function loadTabContent(tabId) {
 // ------------------------------------------------------------------
 // 0. REVENUE & STATS ANALYTICS TAB
 // ------------------------------------------------------------------
+// Chart instances registry to support redraws
+let chartInstances = {};
+
+function renderChart(canvasId, type, data, options = {}) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+
+  if (chartInstances[canvasId]) {
+    chartInstances[canvasId].destroy();
+  }
+
+  chartInstances[canvasId] = new Chart(ctx, {
+    type,
+    data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color: '#706a60', font: { family: 'Inter', size: 12 } }
+        }
+      },
+      scales: type !== 'doughnut' && type !== 'pie' ? {
+        x: { ticks: { color: '#706a60' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+        y: { ticks: { color: '#706a60' }, grid: { color: 'rgba(0,0,0,0.05)' } }
+      } : {},
+      ...options
+    }
+  });
+}
+
 async function fetchStats() {
   const data = await apiFetch('/stats');
   if (data) {
     document.getElementById('stat-total-revenue').innerText = `₹${data.financials?.totalRevenueINR || 0}`;
     document.getElementById('stat-active-subs').innerText = `${data.financials?.activeSubscriptionsCount || 0}`;
-    document.getElementById('stat-gold-users').innerText = `${data.overview?.goldUsers || 0}`;
-    document.getElementById('stat-silver-users').innerText = `${data.overview?.silverUsers || 0}`;
-    document.getElementById('stat-free-users').innerText = `${data.overview?.freeUsers || 0}`;
-    document.getElementById('stat-verified-users').innerText = `${data.overview?.verifiedUsers || 0}`;
+    document.getElementById('stat-total-users').innerText = `${data.overview?.totalUsers || 0}`;
+    document.getElementById('stat-total-matches').innerText = `${data.social?.totalMatches || 0}`;
+    document.getElementById('stat-total-likes').innerText = `${data.social?.totalLikes || 0}`;
+    document.getElementById('stat-open-flags').innerText = `${data.moderation?.openFlags || 0}`;
+
+    // 1. Chart Collections (Document counts across all database collections)
+    if (data.collections) {
+      const colLabels = Object.keys(data.collections);
+      const colValues = Object.values(data.collections);
+      renderChart('chart-collections', 'bar', {
+        labels: colLabels,
+        datasets: [{
+          label: 'Document Count',
+          data: colValues,
+          backgroundColor: 'rgba(99, 102, 241, 0.75)',
+          borderColor: '#6366f1',
+          borderWidth: 1,
+          borderRadius: 6
+        }]
+      }, {
+        plugins: { legend: { display: false } }
+      });
+    }
+
+    // 2. Chart Subscriptions (Free vs Silver vs Gold)
+    if (data.overview) {
+      renderChart('chart-subscriptions', 'doughnut', {
+        labels: ['Free Tier Users', 'Silver Passes (₹39/mo)', 'Gold Passes (₹49/mo)'],
+        datasets: [{
+          data: [data.overview.freeUsers || 0, data.overview.silverUsers || 0, data.overview.goldUsers || 0],
+          backgroundColor: ['#64748b', '#475569', '#d97706'],
+          borderWidth: 2,
+          borderColor: '#ffffff'
+        }]
+      });
+    }
+
+    // 3. Chart Demographics & Verification (Male vs Female vs Other | Verified vs Pending vs Unverified)
+    if (data.overview) {
+      renderChart('chart-demographics', 'bar', {
+        labels: ['Male Users', 'Female Users', 'Other Users', 'Verified IDs', 'Pending Verification', 'Unverified IDs'],
+        datasets: [{
+          label: 'Users Count',
+          data: [
+            data.overview.maleUsers || 0,
+            data.overview.femaleUsers || 0,
+            data.overview.otherUsers || 0,
+            data.overview.verifiedUsers || 0,
+            data.overview.pendingVerifications || 0,
+            data.overview.unverifiedUsers || 0
+          ],
+          backgroundColor: ['#3b82f6', '#ec4899', '#a855f7', '#16a34a', '#eab308', '#dc2626'],
+          borderWidth: 1,
+          borderRadius: 6
+        }]
+      }, {
+        plugins: { legend: { display: false } }
+      });
+    }
+
+    // 4. Chart Engagement (Likes, Superlikes, Dislikes, Matches, Messages, Posts, Waitlist, Careers)
+    if (data.social) {
+      renderChart('chart-engagement', 'bar', {
+        labels: ['Standard Likes', 'Superlikes', 'Dislikes / Passes', 'Mutual Matches', 'Messages', 'Waitlist Leads', 'Career Applications'],
+        datasets: [{
+          label: 'Engagement Activity',
+          data: [
+            data.social.standardLikes || 0,
+            data.social.superlikes || 0,
+            data.social.totalDislikes || 0,
+            data.social.totalMatches || 0,
+            data.social.totalMessages || 0,
+            data.social.totalWaitlist || 0,
+            data.social.totalCareers || 0
+          ],
+          backgroundColor: 'rgba(217, 119, 6, 0.75)',
+          borderColor: '#d97706',
+          borderWidth: 1,
+          borderRadius: 6
+        }]
+      }, {
+        plugins: { legend: { display: false } }
+      });
+    }
+
+    // 5. Chart Moderation (High, Medium, Low open flags, Total Reports, Banned users)
+    if (data.moderation) {
+      renderChart('chart-moderation', 'pie', {
+        labels: ['High Severity Flags', 'Medium Severity Flags', 'Low Severity Flags', 'Total Reports Received', 'Banned Accounts'],
+        datasets: [{
+          data: [
+            data.moderation.highFlags || 0,
+            data.moderation.mediumFlags || 0,
+            data.moderation.lowFlags || 0,
+            data.moderation.totalReports || 0,
+            data.moderation.bannedUsers || 0
+          ],
+          backgroundColor: ['#dc2626', '#f97316', '#eab308', '#ec4899', '#94a3b8'],
+          borderWidth: 2,
+          borderColor: '#ffffff'
+        }]
+      });
+    }
   }
   fetchPayments();
 }

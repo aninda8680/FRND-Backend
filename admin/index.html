@@ -9,6 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <!-- Chart.js for Database & System Analytics Visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
@@ -131,10 +133,10 @@
       </header>
 
       <div class="scroll-container">
-        <!-- TAB: REVENUE & ANALYTICS -->
+        <!-- TAB: REVENUE & ANALYTICS DATA VISUALIZATION -->
         <section id="stats-tab" class="tab-pane active">
           <div class="tab-description">
-            <p>Live metrics overview of revenue, active subscriptions, user tiers, and platform engagement.</p>
+            <p>Live metrics overview and complete data visualization across all 12 MongoDB database collections.</p>
           </div>
 
           <!-- STATS CARDS GRID -->
@@ -147,27 +149,72 @@
             <div class="stat-card">
               <span class="stat-label">Active Subscriptions</span>
               <span id="stat-active-subs" class="stat-value">0</span>
-              <span class="stat-sub">Autopay active users</span>
+              <span class="stat-sub">Active paying users</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label">Gold Subscribers</span>
-              <span id="stat-gold-users" class="stat-value" style="color: #d97706;">0</span>
-              <span class="stat-sub">₹49/mo pass holders</span>
+              <span class="stat-label">Total Registered Users</span>
+              <span id="stat-total-users" class="stat-value">0</span>
+              <span class="stat-sub">Users in database</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label">Silver Subscribers</span>
-              <span id="stat-silver-users" class="stat-value" style="color: #475569;">0</span>
-              <span class="stat-sub">₹39/mo pass holders</span>
+              <span class="stat-label">Mutual Matches</span>
+              <span id="stat-total-matches" class="stat-value" style="color: #6366f1;">0</span>
+              <span class="stat-sub">Total user connections</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label">Free Tier Users</span>
-              <span id="stat-free-users" class="stat-value">0</span>
-              <span class="stat-sub">Standard tier</span>
+              <span class="stat-label">Total Swipes & Likes</span>
+              <span id="stat-total-likes" class="stat-value" style="color: var(--accent-green);">0</span>
+              <span class="stat-sub">Likes & superlikes</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label">Verified Students</span>
-              <span id="stat-verified-users" class="stat-value" style="color: var(--accent-green);">0</span>
-              <span class="stat-sub">ID verified accounts</span>
+              <span class="stat-label">Security & Open Flags</span>
+              <span id="stat-open-flags" class="stat-value" style="color: var(--accent-red);">0</span>
+              <span class="stat-sub">Action required</span>
+            </div>
+          </div>
+
+          <!-- DATA VISUALIZATION CHARTS GRID -->
+          <h3 style="margin-top: 28px; margin-bottom: 16px; font-size: 1.2rem; color: var(--text-primary);">📊 Database Data Visualizations</h3>
+          
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; margin-bottom: 32px;">
+            <!-- CHART 1: Database Collections Storage -->
+            <div class="table-card" style="padding: 20px;">
+              <h4 style="margin-top: 0; margin-bottom: 14px; font-size: 1rem; color: var(--text-primary);">🗄️ Database Collections Storage (Document Counts)</h4>
+              <div style="position: relative; height: 260px; width: 100%;">
+                <canvas id="chart-collections"></canvas>
+              </div>
+            </div>
+
+            <!-- CHART 2: Subscriptions & Tier Breakdown -->
+            <div class="table-card" style="padding: 20px;">
+              <h4 style="margin-top: 0; margin-bottom: 14px; font-size: 1rem; color: var(--text-primary);">💳 User Subscription Tiers Breakdown</h4>
+              <div style="position: relative; height: 260px; width: 100%;">
+                <canvas id="chart-subscriptions"></canvas>
+              </div>
+            </div>
+
+            <!-- CHART 3: User Demographics & Verification -->
+            <div class="table-card" style="padding: 20px;">
+              <h4 style="margin-top: 0; margin-bottom: 14px; font-size: 1rem; color: var(--text-primary);">👥 User Gender & Identity Verification Status</h4>
+              <div style="position: relative; height: 260px; width: 100%;">
+                <canvas id="chart-demographics"></canvas>
+              </div>
+            </div>
+
+            <!-- CHART 4: Social Swipes & Engagement -->
+            <div class="table-card" style="padding: 20px;">
+              <h4 style="margin-top: 0; margin-bottom: 14px; font-size: 1rem; color: var(--text-primary);">⚡ Social Engagement & Activity Breakdown</h4>
+              <div style="position: relative; height: 260px; width: 100%;">
+                <canvas id="chart-engagement"></canvas>
+              </div>
+            </div>
+
+            <!-- CHART 5: Moderation & Risk Matrix -->
+            <div class="table-card" style="padding: 20px; grid-column: 1 / -1;">
+              <h4 style="margin-top: 0; margin-bottom: 14px; font-size: 1rem; color: var(--text-primary);">🛡️ Moderation & Security Risk Matrix</h4>
+              <div style="position: relative; height: 260px; width: 100%;">
+                <canvas id="chart-moderation"></canvas>
+              </div>
             </div>
           </div>
 

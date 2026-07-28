@@ -15,6 +15,11 @@ const IdentityVerificationRequest = require('../models/IdentityVerificationReque
 const Payment = require('../models/Payment');
 const Match = require('../models/Match');
 const Like = require('../models/Like');
+const Dislike = require('../models/Dislike');
+const Message = require('../models/Message');
+const AnonymousPost = require('../models/AnonymousPost');
+const Waitlist = require('../models/Waitlist');
+const CareerApplication = require('../models/CareerApplication');
 const { getSignedPreviewUrl } = require('../utils/uploader');
 
 const { adminAuthRequired, JWT_SECRET } = require('../middleware/auth');
@@ -52,7 +57,7 @@ async function logAdminAction(adminId, actionType, targetUserId, details) {
 // 2. STATS & ANALYTICS
 // ------------------------------------------------------------------
 
-// GET /api/admin/stats (Full system metrics & revenue breakdown)
+// GET /api/admin/stats (Full system metrics & database data visualization breakdown)
 router.get('/stats', adminAuthRequired, async (req, res) => {
   try {
     const [
@@ -60,24 +65,62 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
       freeUsers,
       silverUsers,
       goldUsers,
+      maleUsers,
+      femaleUsers,
+      otherUsers,
       verifiedUsers,
-      bannedUsers,
       pendingVerifications,
-      openFlags,
-      totalMatches,
+      unverifiedUsers,
+      bannedUsers,
+
       totalLikes,
+      standardLikes,
+      superlikes,
+      totalDislikes,
+      totalMatches,
+      totalMessages,
+      totalAnonymousPosts,
+      totalFeedback,
+      totalWaitlist,
+      totalCareers,
+
+      openFlags,
+      highFlags,
+      mediumFlags,
+      lowFlags,
+      totalReports,
+
       paidPayments
     ] = await Promise.all([
       User.countDocuments({}),
       User.countDocuments({ $or: [{ tier: 'free' }, { tier: { $exists: false } }] }),
       User.countDocuments({ tier: 'silver' }),
       User.countDocuments({ tier: 'gold' }),
+      User.countDocuments({ gender: 'male' }),
+      User.countDocuments({ gender: 'female' }),
+      User.countDocuments({ gender: { $nin: ['male', 'female'] } }),
       User.countDocuments({ identityStatus: 'verified' }),
-      User.countDocuments({ banned: true }),
       IdentityVerificationRequest.countDocuments({ status: 'pending' }),
-      AccountFlag.countDocuments({ status: 'open' }),
-      Match.countDocuments({}),
+      User.countDocuments({ identityStatus: { $in: ['unverified', 'rejected'] } }),
+      User.countDocuments({ banned: true }),
+
       Like.countDocuments({}),
+      Like.countDocuments({ isSuperlike: { $ne: true } }),
+      Like.countDocuments({ isSuperlike: true }),
+      Dislike.countDocuments({}),
+      Match.countDocuments({}),
+      Message.countDocuments({}),
+      AnonymousPost.countDocuments({}),
+      Feedback.countDocuments({}),
+      Waitlist.countDocuments({}),
+      CareerApplication.countDocuments({}),
+
+      AccountFlag.countDocuments({ status: 'open' }),
+      AccountFlag.countDocuments({ status: 'open', severity: 'high' }),
+      AccountFlag.countDocuments({ status: 'open', severity: 'medium' }),
+      AccountFlag.countDocuments({ status: 'open', severity: 'low' }),
+      Report.countDocuments({}),
+
       Payment.find({ status: { $in: ['paid', 'active'] } })
     ]);
 
@@ -93,7 +136,12 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
         freeUsers,
         silverUsers,
         goldUsers,
+        maleUsers,
+        femaleUsers,
+        otherUsers,
         verifiedUsers,
+        pendingVerifications,
+        unverifiedUsers,
         bannedUsers
       },
       financials: {
@@ -103,11 +151,39 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
         activeSubscriptionsCount: activeSubscriptions,
         totalTransactionsCount: paidPayments.length
       },
-      activity: {
-        totalMatches,
+      social: {
         totalLikes,
-        pendingVerifications,
-        openFlags
+        standardLikes,
+        superlikes,
+        totalDislikes,
+        totalMatches,
+        totalMessages,
+        totalAnonymousPosts,
+        totalFeedback,
+        totalWaitlist,
+        totalCareers
+      },
+      moderation: {
+        openFlags,
+        highFlags,
+        mediumFlags,
+        lowFlags,
+        totalReports,
+        bannedUsers
+      },
+      collections: {
+        Users: totalUsers,
+        Likes: totalLikes,
+        Dislikes: totalDislikes,
+        Matches: totalMatches,
+        Messages: totalMessages,
+        Payments: paidPayments.length,
+        Flags: openFlags,
+        Reports: totalReports,
+        Feedback: totalFeedback,
+        Waitlist: totalWaitlist,
+        Careers: totalCareers,
+        AnonymousPosts: totalAnonymousPosts
       }
     });
   } catch (err) {
