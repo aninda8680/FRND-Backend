@@ -29,9 +29,11 @@ const EmailVerification = require('../api/models/EmailVerification');
 const IdentityVerificationRequest = require('../api/models/IdentityVerificationRequest');
 const Payment = require('../api/models/Payment');
 
-const USER_PASSWORD = 'Password@123';
-const ADMIN_PASSWORD = 'AdminSecure@2026';
-const COMMON_PASS    = 'common-admin-secret-password-123';
+const crypto = require('crypto');
+
+const USER_PASSWORD = process.env.SEED_USER_PASSWORD || process.env.USER_PASSWORD || 'Password@123';
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || (crypto.randomBytes(8).toString('hex') + 'A!1');
+const COMMON_PASS    = process.env.SEED_COMMON_PASSWORD || process.env.ADMIN_COMMON_PASSWORD || (crypto.randomBytes(8).toString('hex') + 'C!1');
 
 const MALE_NAMES = [
   'Arjun', 'Dev', 'Rahul', 'Aman', 'Sahil', 'Rohan', 'Aditya', 'Vikram', 'Kunal', 'Kabir',

@@ -60,10 +60,12 @@ const AVATAR_URLS = [
   { url: `https://randomuser.me/api/portraits/women/29.jpg`, fileId: 'demo_12' },
 ];
 
-// Raw user definitions (password will be "Password@123" for all)
-const USER_PASSWORD = 'Password@123';
-const ADMIN_PASSWORD = 'AdminSecure@2026';
-const COMMON_PASS    = 'common-admin-secret-password-123';
+const crypto = require('crypto');
+
+// Raw user definitions (password will be environment-configured or default)
+const USER_PASSWORD = process.env.SEED_USER_PASSWORD || process.env.USER_PASSWORD || 'Password@123';
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || (crypto.randomBytes(8).toString('hex') + 'A!1');
+const COMMON_PASS    = process.env.SEED_COMMON_PASSWORD || process.env.ADMIN_COMMON_PASSWORD || (crypto.randomBytes(8).toString('hex') + 'C!1');
 
 const USER_DEFS = [
   {
