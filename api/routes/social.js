@@ -14,6 +14,7 @@ const Feedback = require('../models/Feedback');
 const redis = require('../utils/redis');
 const { authRequired } = require('../middleware/auth');
 const { getOrInitOnboardingConfig, formatUserInterests, formatUserPrompts } = require('../utils/onboardingConfig');
+const emailService = require('../utils/emailService');
 
 // GET /api/config/onboarding (Fetch onboarding interests segments and prompt sections for frontend UI)
 router.get('/config/onboarding', async (req, res) => {
@@ -1021,96 +1022,68 @@ router.post('/waitlist', async (req, res) => {
 
     // 4. Send confirmation email (only if email was supplied)
     if (cleanEmail) {
-      const apiKeys = (process.env.EMAIL_API_KEY || '')
-        .split(',')
-        .map(k => k.trim())
-        .filter(k => k && !k.startsWith('re_your_'));
+      const subject = "🎉 Welcome to the FRND Waitlist!";
+      const html = `
+        <div style="background-color: #FDF4E5; padding: 40px 16px; font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-height: 100%;">
+          <div style="max-width: 560px; margin: 0 auto; background-color: #FEFDFD; border: 2px solid #040404; border-radius: 24px; box-shadow: 4px 6px 0px #040404; overflow: hidden;">
+            
+            <!-- Header Branding -->
+            <div style="padding: 32px 32px 24px; border-bottom: 2px solid #FDF4E5; background-color: #FEFDFD; text-align: center;">
+              <h2 style="margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.04em; color: #040404; text-transform: uppercase;">
+                FR<span style="color: #A41534;">ND</span>
+              </h2>
+              <p style="margin: 4px 0 0; font-family: Georgia, serif; font-style: italic; color: #A41534; font-size: 15px;">
+                Campus friends, made intentional.
+              </p>
+            </div>
 
-      const fromEmails = (process.env.EMAIL_FROM || 'onboarding@resend.dev')
-        .split(',')
-        .map(e => e.trim())
-        .filter(Boolean);
+            <!-- Body Content -->
+            <div style="padding: 32px;">
+              <h1 style="margin: 0 0 18px; font-size: 24px; font-weight: 800; color: #040404; text-transform: uppercase; letter-spacing: -0.02em; line-height: 1.25;">
+                You're on the waitlist! 🎉
+              </h1>
 
-      if (apiKeys.length > 0) {
-        const { Resend } = require('resend');
-        for (let i = 0; i < apiKeys.length; i++) {
-          const apiKey = apiKeys[i];
-          const fromEmail = fromEmails[i % fromEmails.length];
-          try {
-            const resend = new Resend(apiKey);
-            await resend.emails.send({
-              from: `FRND <${fromEmail}>`,
-              to: [cleanEmail],
-              subject: "🎉 Welcome to the FRND Waitlist!",
-              headers: {
-                'X-Entity-Ref-ID': crypto.randomUUID()
-              },
-              html: `
-                <div style="background-color: #FDF4E5; padding: 40px 16px; font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-height: 100%;">
-                  <div style="max-width: 560px; margin: 0 auto; background-color: #FEFDFD; border: 2px solid #040404; border-radius: 24px; box-shadow: 4px 6px 0px #040404; overflow: hidden;">
-                    
-                    <!-- Header Branding -->
-                    <div style="padding: 32px 32px 24px; border-bottom: 2px solid #FDF4E5; background-color: #FEFDFD; text-align: center;">
-                      <h2 style="margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.04em; color: #040404; text-transform: uppercase;">
-                        FR<span style="color: #A41534;">ND</span>
-                      </h2>
-                      <p style="margin: 4px 0 0; font-family: Georgia, serif; font-style: italic; color: #A41534; font-size: 15px;">
-                        Campus friends, made intentional.
-                      </p>
-                    </div>
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
+                Thanks for joining the <strong style="color: #A41534;">FRND</strong> waitlist.
+              </p>
 
-                    <!-- Body Content -->
-                    <div style="padding: 32px;">
-                      <h1 style="margin: 0 0 18px; font-size: 24px; font-weight: 800; color: #040404; text-transform: uppercase; letter-spacing: -0.02em; line-height: 1.25;">
-                        You're on the waitlist! 🎉
-                      </h1>
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
+                We've successfully reserved your spot. As soon as FRND launches for your campus, you'll be among the first to receive early access.
+              </p>
 
-                      <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
-                        Thanks for joining the <strong style="color: #A41534;">FRND</strong> waitlist.
-                      </p>
+              <p style="margin: 0 0 28px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
+                Until then, stay tuned—we're working hard to build the best way to meet people on campus.
+              </p>
 
-                      <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
-                        We've successfully reserved your spot. As soon as FRND launches for your campus, you'll be among the first to receive early access.
-                      </p>
+              <!-- Button -->
+              <div style="margin-top: 24px; text-align: left;">
+                <a href="https://frnd.buzz"
+                   style="display: inline-block; background-color: #A41534; color: #FEFDFD; text-decoration: none; padding: 14px 28px; border-radius: 9999px; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.12em; border: 2px solid #040404; box-shadow: 3px 3px 0px #040404;">
+                  Visit FRND →
+                </a>
+              </div>
+            </div>
 
-                      <p style="margin: 0 0 28px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
-                        Until then, stay tuned—we're working hard to build the best way to meet people on campus.
-                      </p>
+            <!-- Footer -->
+            <div style="padding: 24px 32px; background-color: #040404; color: #FEFDFD;">
+              <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #E3D9CF;">
+                You're receiving this email because you joined the FRND waitlist.
+              </p>
 
-                      <!-- Button -->
-                      <div style="margin-top: 24px; text-align: left;">
-                        <a href="https://frnd.buzz"
-                           style="display: inline-block; background-color: #A41534; color: #FEFDFD; text-decoration: none; padding: 14px 28px; border-radius: 9999px; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.12em; border: 2px solid #040404; box-shadow: 3px 3px 0px #040404;">
-                          Visit FRND →
-                        </a>
-                      </div>
-                    </div>
+              <p style="margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: #E3D9CF;">
+                Questions? Simply reply to this email or contact
+                <a href="mailto:contact@frnd.buzz" style="color: #A41534; text-decoration: none; font-weight: 700;">contact@frnd.buzz</a>.
+              </p>
 
-                    <!-- Footer -->
-                    <div style="padding: 24px 32px; background-color: #040404; color: #FEFDFD;">
-                      <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #E3D9CF;">
-                        You're receiving this email because you joined the FRND waitlist.
-                      </p>
+              <p style="margin: 14px 0 0; font-size: 11px; color: #8B7B74; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;">
+                © ${new Date().getFullYear()} FRND. All rights reserved.
+              </p>
+            </div>
+          </div>
+        </div>
+      `;
 
-                      <p style="margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: #E3D9CF;">
-                        Questions? Simply reply to this email or contact
-                        <a href="mailto:contact@frnd.buzz" style="color: #A41534; text-decoration: none; font-weight: 700;">contact@frnd.buzz</a>.
-                      </p>
-
-                      <p style="margin: 14px 0 0; font-size: 11px; color: #8B7B74; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;">
-                        © ${new Date().getFullYear()} FRND. All rights reserved.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              `
-            });
-            break; // Sent successfully
-          } catch (emailErr) {
-            console.error(`[WAITLIST EMAIL EXCEPTION key #${i + 1}]:`, emailErr.message);
-          }
-        }
-      }
+      await emailService.sendEmail({ to: cleanEmail, subject, html });
     }
 
     res.status(201).json({ message: 'Successfully joined the waitlist!' });

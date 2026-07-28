@@ -246,6 +246,9 @@ function loadTabContent(tabId) {
     case 'onboarding-tab':
       fetchOnboardingConfig();
       break;
+    case 'email-tab':
+      fetchEmailPoolStatus();
+      break;
   }
 }
 
@@ -819,4 +822,111 @@ if (btnSaveConfig) {
     }
   });
 }
+
+// ------------------------------------------------------------------
+// RESEND EMAIL POOL & FAILOVER MANAGEMENT
+// ------------------------------------------------------------------
+async function fetchEmailPoolStatus() {
+  const alertEl = document.getElementById('email-alert');
+  const activeDisplay = document.getElementById('active-email-account-display');
+  const tableBody = document.getElementById('email-accounts-table-body');
+
+  if (alertEl) alertEl.classList.add('hidden');
+
+  const data = await apiFetch('/config/email');
+  if (!data) return;
+
+  if (activeDisplay) {
+    if (data.activeAccount) {
+      activeDisplay.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <strong style="color: #6366f1; font-size: 1.1rem;">Account #${data.activeAccount.index + 1}</strong> (${data.activeAccount.label || 'Default'})<br>
+            <span style="font-size: 0.9rem; color: #a0aec0;">Sender Email: <strong style="color: #ffffff;">${data.activeAccount.fromEmail}</strong> | Key: <code style="color: #00ffcc;">${data.activeAccount.maskedKey}</code></span>
+          </div>
+          <div>
+            <span class="badge-status success">Active Sending</span>
+            <span style="margin-left: 12px; font-size: 0.9rem; color: #a0aec0;"><strong>${data.activeAccount.dailySentCount || 0}</strong> / 100 sent today</span>
+          </div>
+        </div>
+      `;
+    } else {
+      activeDisplay.innerHTML = `<span style="color: var(--accent-color);">No active sending account selected.</span>`;
+    }
+  }
+
+  if (tableBody) {
+    if (!data.accounts || data.accounts.length === 0) {
+      tableBody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">No email accounts found in environment or database. Set EMAIL_API_KEY in .env.</td></tr>`;
+      return;
+    }
+
+    tableBody.innerHTML = data.accounts.map(acc => {
+      let statusBadge = '';
+      if (acc.status === 'active') {
+        statusBadge = `<span class="badge-status success">Active</span>`;
+      } else if (acc.status === 'quota_exceeded') {
+        statusBadge = `<span class="badge-status high">Quota Exceeded (100/day)</span>`;
+      } else if (acc.status === 'error') {
+        statusBadge = `<span class="badge-status high">Error</span>`;
+      } else {
+        statusBadge = `<span class="badge-status secondary">Disabled</span>`;
+      }
+
+      const isCurrentActive = acc.isActive;
+
+      return `
+        <tr style="${isCurrentActive ? 'background: rgba(99, 102, 241, 0.12); font-weight: 500;' : ''}">
+          <td>
+            <strong>Account #${acc.index + 1}</strong>
+            ${isCurrentActive ? `<br><span style="font-size: 0.75rem; color: #6366f1; font-weight: 700;">[CURRENT ACTIVE]</span>` : ''}
+          </td>
+          <td><code style="color: #00ffcc;">${acc.maskedKey}</code></td>
+          <td>${acc.fromEmail}</td>
+          <td>${statusBadge}</td>
+          <td><strong>${acc.dailySentCount || 0}</strong> / 100</td>
+          <td>${acc.lastUsedAt ? new Date(acc.lastUsedAt).toLocaleTimeString() : 'Never'}</td>
+          <td style="max-width: 200px; font-size: 0.8rem; color: var(--accent-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${acc.lastError || 'None'}">
+            ${acc.lastError || 'None'}
+          </td>
+          <td>
+            ${isCurrentActive
+              ? `<span style="color: #48bb78; font-weight: 700; font-size: 0.85rem;">✓ Active Sending</span>`
+              : `<button class="btn secondary btn-sm" onclick="switchActiveEmailAccount(${acc.index})">Set Active Sending</button>`
+            }
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+}
+
+async function switchActiveEmailAccount(accountIndex) {
+  const alertEl = document.getElementById('email-alert');
+  if (alertEl) alertEl.classList.add('hidden');
+
+  const res = await apiFetch('/config/email/switch', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activeKeyIndex: accountIndex })
+  });
+
+  if (res) {
+    if (alertEl) {
+      alertEl.innerText = res.message || `Switched active sending account to Account #${accountIndex + 1}`;
+      alertEl.className = 'alert success';
+      alertEl.classList.remove('hidden');
+    }
+    fetchEmailPoolStatus();
+  }
+}
+
+// Make switchActiveEmailAccount globally available for inline onclick
+window.switchActiveEmailAccount = switchActiveEmailAccount;
+
+const btnRefreshEmailStatus = document.getElementById('btn-refresh-email-status');
+if (btnRefreshEmailStatus) {
+  btnRefreshEmailStatus.addEventListener('click', fetchEmailPoolStatus);
+}
+
 

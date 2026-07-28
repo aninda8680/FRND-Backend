@@ -767,4 +767,43 @@ router.put('/config/onboarding', adminAuthRequired, async (req, res) => {
   }
 });
 
+// ------------------------------------------------------------------
+// RESEND EMAIL POOL & FAILOVER MANAGEMENT
+// ------------------------------------------------------------------
+
+// GET /api/admin/config/email
+router.get('/config/email', adminAuthRequired, async (req, res) => {
+  try {
+    const emailService = require('../utils/emailService');
+    const status = await emailService.getEmailServiceStatus();
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error fetching email service status' });
+  }
+});
+
+// PUT /api/admin/config/email/switch (Admin: Manually switch active key or re-enable quota exceeded key)
+router.put('/config/email/switch', adminAuthRequired, async (req, res) => {
+  try {
+    const { activeKeyIndex } = req.body;
+    if (activeKeyIndex === undefined || activeKeyIndex === null) {
+      return res.status(400).json({ error: 'activeKeyIndex is required' });
+    }
+
+    const emailService = require('../utils/emailService');
+    const updatedStatus = await emailService.setActiveEmailAccount(activeKeyIndex);
+
+    await logAdminAction(req.admin._id, 'switch_email_account', null, { activeKeyIndex });
+
+    res.json({
+      message: `Active email account successfully switched to Account #${Number(activeKeyIndex) + 1}`,
+      status: updatedStatus
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || 'Error switching active email account' });
+  }
+});
+
 module.exports = router;

@@ -1715,6 +1715,51 @@ Audit log of all actions taken by administrators. Requires admin Bearer token.
 
 ---
 
+#### GET `/api/admin/config/email`
+
+Fetch current Resend API accounts pool status, active sending key index, masked keys, daily sent counts (100 mails/day quota), and error logs. Requires admin Bearer token.
+
+**Response (200 OK):**
+```json
+{
+  "activeKeyIndex": 0,
+  "totalAccounts": 3,
+  "activeAccount": {
+    "index": 0,
+    "label": "Resend Account #1",
+    "maskedKey": "re_a1b2...x9y8",
+    "fromEmail": "onboarding@resend.dev",
+    "status": "active",
+    "dailySentCount": 14,
+    "lastUsedAt": "2026-07-28T15:20:00.000Z",
+    "lastError": "",
+    "isActive": true
+  },
+  "accounts": [ ... ]
+}
+```
+
+---
+
+#### PUT `/api/admin/config/email/switch`
+
+Manually switch the active sending Resend account key index or re-enable an account. Requires admin Bearer token.
+
+**Body:**
+```json
+{ "activeKeyIndex": 1 }
+```
+
+**Response (200 OK):**
+```json
+{
+  "message": "Active email account successfully switched to Account #2",
+  "status": { ... }
+}
+```
+
+---
+
 ## 6. Unusual Activity Flags Reference
 
 | Flag type | Trigger | Severity | Where raised |

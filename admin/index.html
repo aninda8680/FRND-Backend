@@ -109,6 +109,9 @@
         <button class="nav-item" data-tab="onboarding-tab">
           <span class="icon">⚙️</span> Onboarding Options
         </button>
+        <button class="nav-item" data-tab="email-tab">
+          <span class="icon">📧</span> Resend Email Pool
+        </button>
       </nav>
       <div class="sidebar-footer">
         <button id="logout-btn" class="btn secondary full-width">Logout</button>
@@ -378,6 +381,50 @@
                 <textarea id="onboarding-json-editor" rows="20" style="font-family: monospace; font-size: 0.85rem; width: 100%; padding: 12px; background-color: #0d0d0d; color: #00ffcc; border: 1px solid var(--border-color); border-radius: 8px;"></textarea>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- RESEND EMAIL POOL & FAILOVER TAB -->
+        <section id="email-tab" class="tab-content hidden">
+          <div class="tab-header">
+            <h2>📧 Resend Email Pool & Failover Pool</h2>
+          </div>
+          <div class="tab-description">
+            <p>Monitor your Resend accounts pool, track 100 mails/day quotas, see current active key, and manually switch sending keys.</p>
+          </div>
+
+          <div id="email-alert" class="alert hidden" style="margin-bottom: 16px;"></div>
+
+          <div style="margin-bottom: 16px;">
+            <button id="btn-refresh-email-status" type="button" class="btn secondary">🔄 Refresh Email Pool Status</button>
+          </div>
+
+          <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            <h3 style="margin-top: 0; font-size: 1.1rem; color: #ffffff;">Current Active Sending Account</h3>
+            <div id="active-email-account-display" style="font-size: 1rem; padding: 12px 16px; background: rgba(255, 255, 255, 0.04); border-radius: 8px; border: 1px dashed rgba(255, 255, 255, 0.15); margin-top: 8px;">
+              Loading active email account...
+            </div>
+          </div>
+
+          <h3 style="font-size: 1.1rem; color: #ffffff; margin-bottom: 12px;">Resend Keys Pool</h3>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Account Index</th>
+                  <th>Masked API Key</th>
+                  <th>Sender Address (EMAIL_FROM)</th>
+                  <th>Status</th>
+                  <th>Sent Today</th>
+                  <th>Last Used</th>
+                  <th>Last Error</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="email-accounts-table-body">
+                <tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">Loading accounts pool...</td></tr>
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
