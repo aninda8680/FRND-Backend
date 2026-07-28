@@ -266,11 +266,42 @@ async function updateEmailAccountsPool(accountsList, activeKeyIndex = 0) {
   return getEmailServiceStatus();
 }
 
+/**
+ * Manually update the daily sent count of a specific Resend account
+ */
+async function updateAccountDailySentCount(targetIndex, newCount) {
+  const config = await getOrInitEmailConfig();
+  const idx = Number(targetIndex);
+  const count = Number(newCount);
+
+  if (isNaN(idx) || idx < 0 || idx >= config.accounts.length) {
+    throw new Error(`Invalid account index: ${targetIndex}`);
+  }
+
+  if (isNaN(count) || count < 0) {
+    throw new Error(`Invalid count: ${newCount}. Must be a non-negative number.`);
+  }
+
+  const account = config.accounts[idx];
+  account.dailySentCount = count;
+  account.lastResetDate = new Date().toISOString().split('T')[0];
+
+  if (count < 100 && account.status === 'quota_exceeded') {
+    account.status = 'active'; // Auto re-enable account if count is altered under 100
+  }
+
+  config.updatedAt = new Date();
+  await config.save();
+
+  return getEmailServiceStatus();
+}
+
 module.exports = {
   getOrInitEmailConfig,
   sendEmail,
   getEmailServiceStatus,
   setActiveEmailAccount,
   updateEmailAccountsPool,
+  updateAccountDailySentCount,
   maskApiKey
 };

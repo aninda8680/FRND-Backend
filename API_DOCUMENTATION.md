@@ -1077,6 +1077,30 @@ Sign up for the app's waitlist. Captures unique client IP and optional device fi
 
 ---
 
+#### POST `/api/careers/apply`
+
+Public endpoint for role applications from the FRND Career Page. Receives applicant name, email, subject (role title), and application text body. **No authentication required.**
+
+**Body:**
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane.doe@gmail.com",
+  "subject": "Full-Stack Developer Application",
+  "body": "I am a passionate software engineer with 3 years experience building scalable WebSockets & React applications. Here is my portfolio..."
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "message": "Application submitted successfully! Our team will review your submission soon.",
+  "applicationId": "651a2b3c4d5e6f7a8b9c0d99"
+}
+```
+
+---
+
 ## 4. Real-Time Chat Service (Socket.IO — Port 5001)
 
 ### Connection Handshake
@@ -1755,6 +1779,75 @@ Manually switch the active sending Resend account key index or re-enable an acco
 {
   "message": "Active email account successfully switched to Account #2",
   "status": { ... }
+}
+```
+
+---
+
+#### PUT `/api/admin/config/email/count`
+
+Manually alter or reset the daily sent email count (0 - 100 quota) for any Resend account. If count is updated under 100, the account is automatically re-enabled if previously marked `quota_exceeded`. Requires admin Bearer token.
+
+**Body:**
+```json
+{
+  "accountIndex": 0,
+  "dailySentCount": 0
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "message": "Daily sent count for Account #1 updated to 0",
+  "status": { ... }
+}
+```
+
+---
+
+#### GET `/api/admin/careers`
+
+List role applications submitted from the career page. Requires admin Bearer token.
+
+**Query params:** `?page=1&limit=50`
+
+**Response (200 OK):**
+```json
+{
+  "applications": [
+    {
+      "_id": "651a2b3c4d5e6f7a8b9c0d99",
+      "name": "Jane Doe",
+      "email": "jane.doe@gmail.com",
+      "subject": "Full-Stack Developer Application",
+      "body": "I am a passionate software engineer with 3 years experience...",
+      "status": "pending",
+      "createdAt": "2026-07-28T16:00:00.000Z"
+    }
+  ],
+  "page": 1,
+  "limit": 50,
+  "total": 1
+}
+```
+
+---
+
+#### PUT `/api/admin/careers/:id/status`
+
+Update application status (`pending`, `reviewed`, `contacted`, `rejected`). Requires admin Bearer token.
+
+**Body:**
+```json
+{ "status": "reviewed" }
+```
+
+**Response (200 OK):**
+```json
+{
+  "message": "Career application status updated successfully",
+  "application": { ... }
 }
 ```
 

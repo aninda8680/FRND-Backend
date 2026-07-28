@@ -112,6 +112,9 @@
         <button class="nav-item" data-tab="email-tab">
           <span class="icon">📧</span> Resend Email Pool
         </button>
+        <button class="nav-item" data-tab="careers-tab">
+          <span class="icon">💼</span> Career Applications
+        </button>
       </nav>
       <div class="sidebar-footer">
         <button id="logout-btn" class="btn secondary full-width">Logout</button>
@@ -423,6 +426,35 @@
               </thead>
               <tbody id="email-accounts-table-body">
                 <tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">Loading accounts pool...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        <!-- CAREER APPLICATIONS TAB -->
+        <section id="careers-tab" class="tab-pane">
+          <div class="tab-header" style="margin-bottom: 12px;">
+            <h2>💼 Career Applications</h2>
+          </div>
+          <div class="tab-description">
+            <p>Review role applications submitted from the public FRND Career Page.</p>
+          </div>
+
+          <div id="careers-alert" class="alert hidden" style="margin-bottom: 16px;"></div>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Applicant Name</th>
+                  <th>Email</th>
+                  <th>Subject / Role</th>
+                  <th>Message / Body</th>
+                  <th>Status</th>
+                  <th>Submitted At</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="careers-table-body">
+                <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Loading applications...</td></tr>
               </tbody>
             </table>
           </div>

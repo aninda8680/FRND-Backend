@@ -806,4 +806,81 @@ router.put('/config/email/switch', adminAuthRequired, async (req, res) => {
   }
 });
 
+// PUT /api/admin/config/email/count (Admin: Manually alter/update daily sent count for an email account under 100 quota)
+router.put('/config/email/count', adminAuthRequired, async (req, res) => {
+  try {
+    const { accountIndex, dailySentCount } = req.body;
+    if (accountIndex === undefined || dailySentCount === undefined) {
+      return res.status(400).json({ error: 'Required fields: accountIndex and dailySentCount' });
+    }
+
+    const emailService = require('../utils/emailService');
+    const updatedStatus = await emailService.updateAccountDailySentCount(accountIndex, dailySentCount);
+
+    await logAdminAction(req.admin._id, 'update_email_sent_count', null, { accountIndex, dailySentCount });
+
+    res.json({
+      message: `Daily sent count for Account #${Number(accountIndex) + 1} updated to ${dailySentCount}`,
+      status: updatedStatus
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || 'Error updating daily sent count' });
+  }
+});
+
+// ------------------------------------------------------------------
+// CAREER APPLICATIONS MANAGEMENT
+// ------------------------------------------------------------------
+
+// GET /api/admin/careers (List submitted role applications for career page)
+router.get('/careers', adminAuthRequired, async (req, res) => {
+  try {
+    const { page, limit, skip } = getPagination(req.query);
+    const CareerApplication = require('../models/CareerApplication');
+
+    const [applications, total] = await Promise.all([
+      CareerApplication.find({})
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      CareerApplication.countDocuments({})
+    ]);
+
+    res.json({ applications, page, limit, total });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error fetching career applications' });
+  }
+});
+
+// PUT /api/admin/careers/:id/status (Update application status)
+router.put('/careers/:id/status', adminAuthRequired, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const allowedStatuses = ['pending', 'reviewed', 'contacted', 'rejected'];
+    if (!status || !allowedStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Allowed: ${allowedStatuses.join(', ')}` });
+    }
+
+    const CareerApplication = require('../models/CareerApplication');
+    const application = await CareerApplication.findByIdAndUpdate(
+      req.params.id,
+      { $set: { status } },
+      { new: true }
+    );
+
+    if (!application) {
+      return res.status(404).json({ error: 'Career application not found' });
+    }
+
+    await logAdminAction(req.admin._id, 'update_career_application_status', null, { applicationId: req.params.id, status });
+
+    res.json({ message: 'Career application status updated successfully', application });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error updating career application status' });
+  }
+});
+
 module.exports = router;

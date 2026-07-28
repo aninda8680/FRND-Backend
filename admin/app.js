@@ -249,6 +249,9 @@ function loadTabContent(tabId) {
     case 'email-tab':
       fetchEmailPoolStatus();
       break;
+    case 'careers-tab':
+      fetchCareerApplications();
+      break;
   }
 }
 
@@ -884,7 +887,10 @@ async function fetchEmailPoolStatus() {
           <td><code style="color: #00ffcc;">${acc.maskedKey}</code></td>
           <td>${acc.fromEmail}</td>
           <td>${statusBadge}</td>
-          <td><strong>${acc.dailySentCount || 0}</strong> / 100</td>
+          <td>
+            <strong>${acc.dailySentCount || 0}</strong> / 100
+            <button class="btn secondary btn-sm" style="margin-left: 6px; padding: 2px 8px; font-size: 0.75rem;" onclick="promptAlterSentCount(${acc.index}, ${acc.dailySentCount || 0})">✏️ Edit Count</button>
+          </td>
           <td>${acc.lastUsedAt ? new Date(acc.lastUsedAt).toLocaleTimeString() : 'Never'}</td>
           <td style="max-width: 200px; font-size: 0.8rem; color: var(--accent-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${acc.lastError || 'None'}">
             ${acc.lastError || 'None'}
@@ -921,12 +927,106 @@ async function switchActiveEmailAccount(accountIndex) {
   }
 }
 
-// Make switchActiveEmailAccount globally available for inline onclick
+async function promptAlterSentCount(accountIndex, currentCount) {
+  const newCountStr = prompt(`Enter new daily sent count for Account #${accountIndex + 1} (0 - 100 quota):`, currentCount);
+  if (newCountStr === null) return;
+  const newCount = parseInt(newCountStr, 10);
+  if (isNaN(newCount) || newCount < 0) {
+    alert('Please enter a valid non-negative integer.');
+    return;
+  }
+
+  const alertEl = document.getElementById('email-alert');
+  if (alertEl) alertEl.classList.add('hidden');
+
+  const res = await apiFetch('/config/email/count', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountIndex, dailySentCount: newCount })
+  });
+
+  if (res) {
+    if (alertEl) {
+      alertEl.innerText = res.message || `Updated sent count to ${newCount}`;
+      alertEl.className = 'alert success';
+      alertEl.classList.remove('hidden');
+    }
+    fetchEmailPoolStatus();
+  }
+}
+
+// Make functions globally available for inline onclick
 window.switchActiveEmailAccount = switchActiveEmailAccount;
+window.promptAlterSentCount = promptAlterSentCount;
 
 const btnRefreshEmailStatus = document.getElementById('btn-refresh-email-status');
 if (btnRefreshEmailStatus) {
   btnRefreshEmailStatus.addEventListener('click', fetchEmailPoolStatus);
 }
+
+// ------------------------------------------------------------------
+// CAREER APPLICATIONS MANAGEMENT
+// ------------------------------------------------------------------
+async function fetchCareerApplications() {
+  const tableBody = document.getElementById('careers-table-body');
+  if (!tableBody) return;
+
+  const data = await apiFetch('/careers');
+  if (!data) return;
+
+  if (!data.applications || data.applications.length === 0) {
+    tableBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No career applications submitted yet.</td></tr>`;
+    return;
+  }
+
+  tableBody.innerHTML = data.applications.map(app => {
+    let badgeClass = 'secondary';
+    if (app.status === 'reviewed') badgeClass = 'low';
+    if (app.status === 'contacted') badgeClass = 'success';
+    if (app.status === 'rejected') badgeClass = 'high';
+
+    return `
+      <tr>
+        <td><strong>${app.name}</strong></td>
+        <td><a href="mailto:${app.email}" style="color: #6366f1; text-decoration: none; font-weight: 500;">${app.email}</a></td>
+        <td><strong>${app.subject}</strong></td>
+        <td style="max-width: 320px; white-space: pre-wrap; font-size: 0.85rem; line-height: 1.4; max-height: 90px; overflow-y: auto; background: rgba(0,0,0,0.03); padding: 8px; border-radius: 6px;">${app.body}</td>
+        <td><span class="badge-status ${badgeClass}">${app.status.toUpperCase()}</span></td>
+        <td style="font-size: 0.85rem; color: var(--text-secondary);">${new Date(app.createdAt).toLocaleString()}</td>
+        <td>
+          <select class="btn secondary btn-sm" onchange="updateCareerStatus('${app._id}', this.value)" style="font-size: 0.8rem; padding: 4px 8px;">
+            <option value="pending" ${app.status === 'pending' ? 'selected' : ''}>Pending</option>
+            <option value="reviewed" ${app.status === 'reviewed' ? 'selected' : ''}>Reviewed</option>
+            <option value="contacted" ${app.status === 'contacted' ? 'selected' : ''}>Contacted</option>
+            <option value="rejected" ${app.status === 'rejected' ? 'selected' : ''}>Rejected</option>
+          </select>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function updateCareerStatus(applicationId, newStatus) {
+  const alertEl = document.getElementById('careers-alert');
+  if (alertEl) alertEl.classList.add('hidden');
+
+  const res = await apiFetch(`/careers/${applicationId}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: newStatus })
+  });
+
+  if (res) {
+    if (alertEl) {
+      alertEl.innerText = res.message || 'Application status updated';
+      alertEl.className = 'alert success';
+      alertEl.classList.remove('hidden');
+    }
+    fetchCareerApplications();
+  }
+}
+
+window.updateCareerStatus = updateCareerStatus;
+
 
 

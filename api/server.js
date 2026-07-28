@@ -7,6 +7,7 @@ const verificationRoutes = require('./routes/verification');
 const socialRoutes = require('./routes/social');
 const adminRoutes = require('./routes/admin');
 const paymentRoutes = require('./routes/payments');
+const careerRoutes = require('./routes/careers');
 require('dotenv').config();
 
 // Fail fast on missing critical secrets in production
@@ -87,6 +88,7 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/careers', careerRoutes);
 app.use('/api', socialRoutes);
 app.use('/api/admin', adminRoutes);
 
