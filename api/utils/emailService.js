@@ -147,15 +147,18 @@ async function sendEmail({ to, subject, html, headers = {} }) {
       const recipientList = Array.isArray(to) ? to : [to];
       const fromFormatted = formatFromAddress(account.fromEmail);
 
+      const emailHeaders = {
+        'X-Entity-Ref-ID': crypto.randomUUID(),
+        ...headers
+      };
+
       const sendPayload = {
         from: fromFormatted,
         to: recipientList,
         subject,
+        headers: emailHeaders,
         html
       };
-      if (headers && Object.keys(headers).length > 0) {
-        sendPayload.headers = headers;
-      }
 
       const { data, error } = await resend.emails.send(sendPayload);
 
