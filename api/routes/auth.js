@@ -53,10 +53,64 @@ async function sendOTPEmail(email, otp) {
       try {
         const resend = new Resend(apiKey);
         const { data, error } = await resend.emails.send({
-          from: fromEmail,
+          from: `FRND <${fromEmail}>`,
           to: [email],
-          subject: 'Your College Dating App Verification Code',
-          html: `<p>Your verification code is <strong>${otp}</strong>. It will expire in 10 minutes.</p>`
+          subject: '🔐 Your FRND Verification Code',
+          html: `
+            <div style="background-color: #FDF4E5; padding: 40px 16px; font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-height: 100%;">
+              <div style="max-width: 560px; margin: 0 auto; background-color: #FEFDFD; border: 2px solid #040404; border-radius: 24px; box-shadow: 4px 6px 0px #040404; overflow: hidden;">
+                
+                <!-- Header Branding -->
+                <div style="padding: 32px 32px 24px; border-bottom: 2px solid #FDF4E5; background-color: #FEFDFD; text-align: center;">
+                  <h2 style="margin: 0; font-size: 32px; font-weight: 900; letter-spacing: -0.04em; color: #040404; text-transform: uppercase;">
+                    FR<span style="color: #A41534;">ND</span>
+                  </h2>
+                  <p style="margin: 4px 0 0; font-family: Georgia, serif; font-style: italic; color: #A41534; font-size: 15px;">
+                    Campus friends, made intentional.
+                  </p>
+                </div>
+
+                <!-- Body Content -->
+                <div style="padding: 32px;">
+                  <h1 style="margin: 0 0 18px; font-size: 24px; font-weight: 800; color: #040404; text-transform: uppercase; letter-spacing: -0.02em; line-height: 1.25;">
+                    Verification Code 🔐
+                  </h1>
+
+                  <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
+                    Use the code below to verify your email address and continue on <strong style="color: #A41534;">FRND</strong>.
+                  </p>
+
+                  <!-- OTP Code Box -->
+                  <div style="margin: 24px 0; text-align: center; background-color: #FDF4E5; border: 2px solid #040404; border-radius: 16px; padding: 20px; box-shadow: 3px 3px 0px #040404;">
+                    <span style="font-family: monospace; font-size: 36px; font-weight: 900; letter-spacing: 0.25em; color: #A41534; display: inline-block; margin-left: 0.25em;">
+                      ${otp}
+                    </span>
+                  </div>
+
+                  <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: #665853; font-weight: 500;">
+                    ⏱️ This verification code will expire in <strong>10 minutes</strong>. Do not share this code with anyone.
+                  </p>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 24px 32px; background-color: #040404; color: #FEFDFD;">
+                  <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #E3D9CF;">
+                    If you didn't request this verification code, you can safely ignore this email.
+                  </p>
+
+                  <p style="margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: #E3D9CF;">
+                    Need help? Contact
+                    <a href="mailto:contact@frnd.buzz" style="color: #A41534; text-decoration: none; font-weight: 700;">contact@frnd.buzz</a>.
+                  </p>
+
+                  <p style="margin: 14px 0 0; font-size: 11px; color: #8B7B74; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;">
+                    © ${new Date().getFullYear()} FRND. All rights reserved.
+                  </p>
+                </div>
+
+              </div>
+            </div>
+          `
         });
 
         if (error) {
