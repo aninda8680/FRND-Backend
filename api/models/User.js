@@ -70,6 +70,24 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed,
     default: {}
   },
+  interests: {
+    type: [{
+      segmentId: { type: String },
+      interestId: { type: String, required: true },
+      label: { type: String, required: true },
+      emoji: { type: String, default: '' }
+    }],
+    default: []
+  },
+  prompts: {
+    type: [{
+      promptId: { type: String, required: true },
+      sectionId: { type: String },
+      question: { type: String, required: true },
+      answer: { type: String, required: true }
+    }],
+    default: []
+  },
   sexualOrientation: {
     type: String
   },
@@ -163,9 +181,9 @@ userSchema.virtual('profileCompletionPercentage').get(function() {
     score += 10;
   }
 
-  // 3. Bio: 15%
+  // 3. Bio: 10%
   if (this.bio && this.bio.trim().length > 0) {
-    score += 15;
+    score += 10;
   }
 
   // 4. Age: 5%
@@ -187,9 +205,9 @@ userSchema.virtual('profileCompletionPercentage').get(function() {
   if (this.school && this.school.trim().length > 0) score += 5;
   if (this.course && this.course.trim().length > 0) score += 5;
 
-  // 8. Hobbies: 10%
+  // 8. Hobbies: 5%
   if (Array.isArray(this.hobbies) && this.hobbies.length > 0) {
-    score += 10;
+    score += 5;
   }
 
   // 9. Skills: 5%
@@ -207,7 +225,17 @@ userSchema.virtual('profileCompletionPercentage').get(function() {
     score += 5;
   }
 
-  // Total max = 20 + 10 + 15 + 5 + 5 + 5 + 5 + 5 + 10 + 5 + 5 + 5 = 100%
+  // 12. Onboarding Selected Interests: 10%
+  if (Array.isArray(this.interests) && this.interests.length > 0) {
+    score += 10;
+  }
+
+  // 13. Onboarding Prompt Answers: 10%
+  if (Array.isArray(this.prompts) && this.prompts.length > 0) {
+    score += 10;
+  }
+
+  // Total max = 20 + 10 + 10 + 5 + 5 + 5 + 10 + 5 + 5 + 5 + 5 + 10 + 10 = 100%
   return Math.min(100, score);
 });
 

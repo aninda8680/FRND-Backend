@@ -110,9 +110,67 @@ io.on('connection', async (socket) => {
   const userId = socket.user.id;
   console.log(`[CHAT] User connected: ${userId}`);
 
+  // Automatically join personal user room for instant push notifications
+  socket.join(`user_${userId}`);
+
   // Track presence in Redis (expires in 2 minutes)
   const presenceKey = `presence:${userId}`;
   await redis.set(presenceKey, '1', { EX: 120 });
+
+  // Handle real-time WebSocket fetching of incoming likes ("Who Liked You")
+  socket.on('fetch_received_likes', async () => {
+    try {
+      const user = await User.findById(userId);
+      if (!user) return;
+
+      const now = new Date();
+      const isSubActive = user.tier && user.tier !== 'free' && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > now);
+
+      const Like = require('./models/Like');
+      const Block = require('./models/Block');
+
+      const blocks = await Block.find({
+        $or: [{ blockerId: userId }, { blockedId: userId }]
+      });
+      const blockedUserIds = blocks.map(b => b.blockerId.equals(userId) ? b.blockedId : b.blockerId);
+      const matches = await Match.find({ $or: [{ userA: userId }, { userB: userId }] });
+      const matchedUserIds = matches.map(m => m.userA.equals(userId) ? m.userB : m.userA);
+
+      const excludedIds = [...blockedUserIds, ...matchedUserIds];
+      const incomingLikes = await Like.find({ toUserId: userId, fromUserId: { $nin: excludedIds } }).sort({ createdAt: -1 });
+
+      const totalLikesCount = incomingLikes.length;
+
+      if (!isSubActive) {
+        return socket.emit('received_likes_update', {
+          totalLikesCount,
+          hasAccess: false,
+          isLocked: true,
+          tier: user.tier || 'free',
+          message: 'Upgrade to Silver or Gold Pass to unlock and see full profiles of users who liked you!',
+          likers: []
+        });
+      }
+
+      const likers = await Promise.all(incomingLikes.map(async (l) => {
+        const likerUser = await User.findById(l.fromUserId).select('name age height pictures bio school course gender identityStatus badges tier');
+        if (!likerUser || likerUser.banned) return null;
+        return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile: likerUser };
+      }));
+
+      const validLikers = likers.filter(Boolean);
+      socket.emit('received_likes_update', {
+        totalLikesCount: validLikers.length,
+        hasAccess: true,
+        isLocked: false,
+        tier: user.tier,
+        likers: validLikers
+      });
+    } catch (err) {
+      console.error('[CHAT] Error in fetch_received_likes:', err);
+      socket.emit('chat_error', { error: 'Error fetching received likes via websocket' });
+    }
+  });
 
   // Handle client joining a room
   socket.on('join_conversation', async ({ conversationId }) => {
@@ -216,6 +274,59 @@ io.on('connection', async (socket) => {
     console.log(`[CHAT] User disconnected: ${userId}`);
     await redis.del(presenceKey);
   });
+});
+
+app.use(express.json());
+
+// Internal Notification Bridge (Receives like/match events from REST API and relays via WebSockets)
+app.post('/internal/notify', async (req, res) => {
+  try {
+    const { event, toUserId, fromUserId, userA, userB, conversationId, type, timestamp } = req.body;
+    const now = timestamp || new Date();
+
+    if (event === 'new_like' && toUserId) {
+      // Broadcast real-time like notification to the targeted user's socket room
+      io.to(`user_${toUserId}`).emit('new_like', {
+        event: 'new_like',
+        toUserId,
+        fromUserId,
+        type: type || 'like',
+        message: 'Someone liked your profile! 💖',
+        timestamp: now
+      });
+      console.log(`[SOCKET NOTIFY] Emitted new_like to user_${toUserId}`);
+    } else if (event === 'new_match' && userA && userB) {
+      // Broadcast real-time match notification to both users' socket rooms
+      io.to(`user_${userA}`).emit('new_match', {
+        event: 'new_match',
+        conversationId,
+        partnerId: userA, // for userB, partner is userA; handled cleanly below
+        partnerId: userB,
+        message: "It's a Match! 🎉",
+        timestamp: now
+      });
+      io.to(`user_${userA}`).emit('new_match', {
+        event: 'new_match',
+        conversationId,
+        partnerId: userB,
+        message: "It's a Match! 🎉",
+        timestamp: now
+      });
+      io.to(`user_${userB}`).emit('new_match', {
+        event: 'new_match',
+        conversationId,
+        partnerId: userA,
+        message: "It's a Match! 🎉",
+        timestamp: now
+      });
+      console.log(`[SOCKET NOTIFY] Emitted new_match to user_${userA} & user_${userB}`);
+    }
+
+    res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('[CHAT] Internal notify handler error:', err);
+    res.status(500).json({ error: 'Internal notification handling error' });
+  }
 });
 
 // Health endpoint

@@ -12,6 +12,21 @@ const AnonymousPost = require('../models/AnonymousPost');
 const Feedback = require('../models/Feedback');
 const redis = require('../utils/redis');
 const { authRequired } = require('../middleware/auth');
+const { getOrInitOnboardingConfig, formatUserInterests, formatUserPrompts } = require('../utils/onboardingConfig');
+
+// GET /api/config/onboarding (Fetch onboarding interests segments and prompt sections for frontend UI)
+router.get('/config/onboarding', async (req, res) => {
+  try {
+    const config = await getOrInitOnboardingConfig();
+    res.json({
+      segments: config.segments,
+      sections: config.sections
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error fetching onboarding options' });
+  }
+});
 
 // Helper to calculate seconds until next UTC midnight
 function getSecondsToUTCMidnight() {
@@ -116,7 +131,7 @@ router.get('/users/me', authRequired, async (req, res) => {
 // PUT /api/users/me
 router.put('/users/me', authRequired, async (req, res) => {
   try {
-    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, tags, pictures } = req.body;
+    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, tags, pictures, interests, prompts } = req.body;
 
     // Input validation
     if (username !== undefined) {
@@ -151,6 +166,12 @@ router.put('/users/me', authRequired, async (req, res) => {
     if (skills !== undefined && (!Array.isArray(skills) || skills.length > 20)) {
       return res.status(400).json({ error: 'Skills must be an array with at most 20 items' });
     }
+    if (interests !== undefined && !Array.isArray(interests)) {
+      return res.status(400).json({ error: 'Interests must be an array' });
+    }
+    if (prompts !== undefined && !Array.isArray(prompts)) {
+      return res.status(400).json({ error: 'Prompts must be an array' });
+    }
     if (pictures !== undefined) {
       if (!Array.isArray(pictures) || pictures.length > 4) {
         return res.status(400).json({ error: 'Pictures must be an array with at most 4 items' });
@@ -177,6 +198,16 @@ router.put('/users/me', authRequired, async (req, res) => {
     if (sexualOrientation !== undefined && validateStringLength(sexualOrientation, 50)) allowedUpdates.sexualOrientation = sexualOrientation;
     if (tags !== undefined && typeof tags === 'object' && !Array.isArray(tags)) allowedUpdates.tags = tags;
     if (pictures !== undefined) allowedUpdates.pictures = pictures;
+
+    if (interests !== undefined || prompts !== undefined) {
+      const config = await getOrInitOnboardingConfig();
+      if (interests !== undefined) {
+        allowedUpdates.interests = formatUserInterests(interests, config);
+      }
+      if (prompts !== undefined) {
+        allowedUpdates.prompts = formatUserPrompts(prompts, config);
+      }
+    }
 
     if (Object.keys(allowedUpdates).length === 0) {
       return res.status(400).json({ error: 'No valid fields provided to update' });
@@ -407,6 +438,35 @@ async function handleLikeAction(req, res, actionType) {
       } catch (e) {
         if (e.code !== 11000) throw e; // ignore duplicate match
       }
+    }
+
+    // Broadcast real-time WebSocket notification events via Redis & Chat Service
+    try {
+      const chatUrl = process.env.CHAT_SERVICE_URL || 'http://localhost:5001';
+      const payload = matchFormed
+        ? { event: 'new_match', userA: fromUserId.toString(), userB: toUserId.toString(), conversationId, timestamp: new Date() }
+        : { event: 'new_like', toUserId: toUserId.toString(), fromUserId: fromUserId.toString(), type: actionType, timestamp: new Date() };
+
+      const http = require('http');
+      const https = require('https');
+      const targetUrl = new URL(`${chatUrl}/internal/notify`);
+      const transport = targetUrl.protocol === 'https:' ? https : http;
+      const dataString = JSON.stringify(payload);
+
+      const notifReq = transport.request(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(dataString)
+        }
+      });
+      notifReq.on('error', (e) => console.warn('[SOCKET NOTIF DISPATCH WARN]:', e.message));
+      notifReq.write(dataString);
+      notifReq.end();
+
+      await redis.publish('events:notifications', payload).catch(() => {});
+    } catch (pubErr) {
+      console.error('[NOTIF PUB ERROR]:', pubErr.message);
     }
 
     res.json({ success: true, matchFormed, conversationId });

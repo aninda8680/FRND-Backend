@@ -54,7 +54,7 @@ const userModalCancel = document.getElementById('user-modal-cancel');
 
 // Tab tracking
 const navItems = document.querySelectorAll('.nav-item');
-const tabPanes = document.querySelectorAll('.tab-pane');
+const tabPanes = document.querySelectorAll('.tab-pane, .tab-content');
 const tabTitle = document.getElementById('tab-title');
 
 // Initialize state
@@ -242,6 +242,9 @@ function loadTabContent(tabId) {
       break;
     case 'waitlist-tab':
       fetchWaitlist();
+      break;
+    case 'onboarding-tab':
+      fetchOnboardingConfig();
       break;
   }
 }
@@ -728,6 +731,25 @@ async function viewUserProfile(userId) {
     </div>
 
     <div style="margin-top: 12px;">
+      <strong>Selected Interests:</strong><br>
+      <div style="margin-top: 4px;">
+        ${user.interests && user.interests.length > 0 ? user.interests.map(i => `<span class="badge" style="margin-right: 4px; margin-bottom: 4px; display: inline-block; padding: 4px 8px; background: rgba(255,255,255,0.1); border-radius: 4px;">${i.emoji || ''} ${i.label}</span>`).join('') : 'None'}
+      </div>
+    </div>
+
+    <div style="margin-top: 12px;">
+      <strong>Prompts & Answers:</strong><br>
+      <div style="margin-top: 4px;">
+        ${user.prompts && user.prompts.length > 0 ? user.prompts.map(p => `
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 8px 12px; border-radius: 6px; margin-bottom: 6px;">
+            <div style="font-size: 0.85rem; color: #a0aec0;">${p.question}</div>
+            <div style="font-weight: 500; color: #ffffff; margin-top: 2px;">${p.answer}</div>
+          </div>
+        `).join('') : 'None'}
+      </div>
+    </div>
+
+    <div style="margin-top: 12px;">
       <strong>Badges:</strong> ${user.badges && user.badges.length > 0 ? user.badges.join(', ') : 'None'}
     </div>
 
@@ -740,3 +762,61 @@ async function viewUserProfile(userId) {
 
   profileViewModal.classList.remove('hidden');
 }
+
+// ------------------------------------------------------------------
+// ONBOARDING OPTIONS CONFIGURATION
+// ------------------------------------------------------------------
+async function fetchOnboardingConfig() {
+  const data = await apiFetch('/config/onboarding');
+  const alertEl = document.getElementById('onboarding-config-alert');
+  const editor = document.getElementById('onboarding-json-editor');
+  if (alertEl) alertEl.classList.add('hidden');
+  if (data && editor) {
+    editor.value = JSON.stringify({ segments: data.segments, sections: data.sections }, null, 2);
+  }
+}
+
+const btnLoadConfig = document.getElementById('btn-load-onboarding-config');
+if (btnLoadConfig) {
+  btnLoadConfig.addEventListener('click', fetchOnboardingConfig);
+}
+
+const btnSaveConfig = document.getElementById('btn-save-onboarding-config');
+if (btnSaveConfig) {
+  btnSaveConfig.addEventListener('click', async () => {
+    const alertEl = document.getElementById('onboarding-config-alert');
+    const editor = document.getElementById('onboarding-json-editor');
+    if (!alertEl || !editor) return;
+
+    alertEl.classList.add('hidden');
+    let parsed;
+    try {
+      parsed = JSON.parse(editor.value);
+    } catch (err) {
+      alertEl.innerText = `Invalid JSON format: ${err.message}`;
+      alertEl.className = 'alert error';
+      alertEl.classList.remove('hidden');
+      return;
+    }
+
+    if (!parsed.segments || !parsed.sections || !Array.isArray(parsed.segments) || !Array.isArray(parsed.sections)) {
+      alertEl.innerText = 'JSON payload must contain "segments" (array) and "sections" (array) top-level keys.';
+      alertEl.className = 'alert error';
+      alertEl.classList.remove('hidden');
+      return;
+    }
+
+    const res = await apiFetch('/config/onboarding', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ segments: parsed.segments, sections: parsed.sections })
+    });
+
+    if (res) {
+      alertEl.innerText = res.message || 'Onboarding options saved successfully!';
+      alertEl.className = 'alert success';
+      alertEl.classList.remove('hidden');
+    }
+  });
+}
+

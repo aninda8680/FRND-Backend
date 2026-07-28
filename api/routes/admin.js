@@ -716,4 +716,55 @@ router.get('/actions', adminAuthRequired, async (req, res) => {
   }
 });
 
+// ------------------------------------------------------------------
+// ONBOARDING OPTIONS CONFIGURATION
+// ------------------------------------------------------------------
+
+// GET /api/admin/config/onboarding
+router.get('/config/onboarding', adminAuthRequired, async (req, res) => {
+  try {
+    const { getOrInitOnboardingConfig } = require('../utils/onboardingConfig');
+    const config = await getOrInitOnboardingConfig();
+    res.json({
+      key: config.key,
+      segments: config.segments,
+      sections: config.sections,
+      updatedAt: config.updatedAt
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error fetching onboarding config' });
+  }
+});
+
+// PUT /api/admin/config/onboarding (Admin: Edit/Update Interests & Prompts JSON options)
+router.put('/config/onboarding', adminAuthRequired, async (req, res) => {
+  try {
+    const { segments, sections } = req.body;
+    if (!segments || !sections || !Array.isArray(segments) || !Array.isArray(sections)) {
+      return res.status(400).json({ error: 'Required payload: segments (array) and sections (array)' });
+    }
+
+    const OnboardingConfig = require('../models/OnboardingConfig');
+    const config = await OnboardingConfig.findOneAndUpdate(
+      { key: 'default_onboarding_config' },
+      { $set: { segments, sections } },
+      { new: true, upsert: true }
+    );
+
+    await logAdminAction(req.admin._id, 'update_onboarding_config', null, {
+      segmentsCount: segments.length,
+      sectionsCount: sections.length
+    });
+
+    res.json({
+      message: 'Onboarding configuration updated successfully',
+      config
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error updating onboarding config' });
+  }
+});
+
 module.exports = router;

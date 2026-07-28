@@ -232,7 +232,16 @@ async function seed100() {
         smoke: i % 5 === 0,
         drink: i % 3 === 0,
         pets: i % 2 === 0
-      }
+      },
+      interests: [
+        { segmentId: 'sports_fitness', interestId: 'football', label: 'Football', emoji: '⚽' },
+        { segmentId: 'gaming_tech', interestId: 'coding', label: 'Coding / Programming', emoji: '💻' },
+        { segmentId: 'food_drink', interestId: 'coffee', label: 'Coffee', emoji: '☕' }
+      ],
+      prompts: [
+        { promptId: 'q01', sectionId: 'questions', question: "What's a random skill you're weirdly proud of?", answer: 'Solving a Rubik\'s cube in 30 seconds!' },
+        { promptId: 's01', sectionId: 'statements', question: 'Dating me is like...', answer: 'A fun roller coaster ride with unlimited coffee!' }
+      ]
     });
 
     await user.save();

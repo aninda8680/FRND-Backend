@@ -106,6 +106,9 @@
         <button class="nav-item" data-tab="announce-tab">
           <span class="icon">📢</span> System Announcement
         </button>
+        <button class="nav-item" data-tab="onboarding-tab">
+          <span class="icon">⚙️</span> Onboarding Options
+        </button>
       </nav>
       <div class="sidebar-footer">
         <button id="logout-btn" class="btn secondary full-width">Logout</button>
@@ -351,6 +354,29 @@
                 <div id="announce-alert" class="alert hidden"></div>
                 <button type="submit" class="btn primary">Publish Announcement</button>
               </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- ONBOARDING OPTIONS EDITOR TAB -->
+        <section id="onboarding-tab" class="tab-content hidden">
+          <div class="tab-header">
+            <h2>⚙️ Onboarding Options & Prompts Config</h2>
+          </div>
+          <div class="tab-description">
+            <p>View and dynamically edit the interests segments and prompt sections available during user onboarding.</p>
+          </div>
+          <div class="card-form-wrapper">
+            <div class="card-form" style="max-width: 900px; width: 100%;">
+              <div id="onboarding-config-alert" class="alert hidden" style="margin-bottom: 16px;"></div>
+              <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                <button id="btn-load-onboarding-config" type="button" class="btn secondary">Reload Current Config</button>
+                <button id="btn-save-onboarding-config" type="button" class="btn primary">Save Changes to Database</button>
+              </div>
+              <div class="form-group">
+                <label for="onboarding-json-editor">Configuration JSON (Segments & Sections)</label>
+                <textarea id="onboarding-json-editor" rows="20" style="font-family: monospace; font-size: 0.85rem; width: 100%; padding: 12px; background-color: #0d0d0d; color: #00ffcc; border: 1px solid var(--border-color); border-radius: 8px;"></textarea>
+              </div>
             </div>
           </div>
         </section>

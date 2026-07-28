@@ -46,6 +46,10 @@ const redis = {
   zRemRangeByScore: async (key, min, max) => {
     return await redisClient.zremrangebyscore(key, min, max);
   },
+  publish: async (channel, message) => {
+    const payload = typeof message === 'object' ? JSON.stringify(message) : String(message);
+    return await redisClient.publish(channel, payload);
+  },
   clientStatus: () => ({ isMock: false, connected: true })
 };
 
