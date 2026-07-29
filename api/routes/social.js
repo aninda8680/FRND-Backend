@@ -1085,33 +1085,59 @@ router.post('/waitlist', async (req, res) => {
     if (cleanEmail) {
       const subject = "Welcome to FRND";
       const html = `
-        <div style="background-color: #fafafa; padding: 32px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #111111;">
-          <div style="max-width: 520px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 32px;">
+        <div style="background-color: #FDF6EA; padding: 40px 16px; font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; min-height: 100%;">
+          <div style="max-width: 560px; margin: 0 auto; background-color: #FEFDFD; border: 2px solid #040404; border-radius: 24px; box-shadow: 4px 6px 0px #040404; overflow: hidden;">
             
-            <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.6; font-weight: 600; color: #111111;">
-              Welcome to FRND
-            </p>
+            <!-- Top Branding Banner -->
+            <div style="padding: 32px 32px 24px; background-color: #FEFDFD; text-align: center; border-bottom: 2px solid #FDF6EA;">
+              <div style="display: inline-block; background-color: #A41534; color: #FEFDFD; padding: 6px 16px; border-radius: 8px; border: 2px solid #040404; box-shadow: 2px 2px 0px #040404; font-weight: 900; font-size: 22px; letter-spacing: 0.1em; text-transform: uppercase;">
+                FRND
+              </div>
+              <p style="margin: 10px 0 0; font-family: Georgia, 'Times New Roman', serif; font-style: italic; color: #A41534; font-size: 15px; font-weight: 600;">
+                Campus friends, made intentional.
+              </p>
+            </div>
 
-            <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #333333;">
-              Hi there,
-            </p>
+            <!-- Body Section -->
+            <div style="padding: 36px 32px;">
+              <h1 style="margin: 0 0 16px; font-size: 26px; font-weight: 900; color: #040404; text-transform: uppercase; letter-spacing: -0.02em; line-height: 1.2;">
+                CAMPUS FRIENDS,<br>MADE <span style="font-family: Georgia, 'Times New Roman', serif; font-style: italic; color: #A41534; text-transform: lowercase; font-weight: normal;">intentional.</span>
+              </h1>
 
-            <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #333333;">
-              Thanks for joining the waitlist for FRND. We've reserved your spot on our list.
-            </p>
+              <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
+                The verified campus dating app to meet your crush, match with real students, and spark authentic connections.
+              </p>
 
-            <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #333333;">
-              We are building an intentional space for campus students to connect, and we will let you know as soon as access opens for your campus.
-            </p>
+              <!-- Status Badge Pill -->
+              <div style="margin: 28px 0; background-color: #FDF4E5; border: 2px solid #A41534; border-radius: 9999px; padding: 16px 24px; text-align: center; box-shadow: 3px 3px 0px #040404;">
+                <span style="font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #A41534;">
+                  Spot Reserved on Waitlist
+                </span>
+              </div>
 
-            <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #333333;">
-              If you have any questions or feedback in the meantime, feel free to reply directly to this email.
-            </p>
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
+                Thanks for joining the FRND waitlist. We have successfully saved your spot. As soon as FRND launches for your campus, you will be among the first to receive early access.
+              </p>
 
-            <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #333333;">
-              Best,<br>
-              The FRND Team
-            </p>
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.65; color: #3A2F2D; font-weight: 500;">
+                If you have any questions or feedback in the meantime, feel free to reply directly to this email.
+              </p>
+
+              <p style="margin: 0; font-size: 15px; line-height: 1.65; color: #040404; font-weight: 700;">
+                Best,<br>
+                The FRND Team
+              </p>
+            </div>
+
+            <!-- Dark Charcoal Footer -->
+            <div style="padding: 24px 32px; background-color: #040404; color: #FEFDFD; text-align: center;">
+              <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #E3D9CF;">
+                You're receiving this because you signed up for the FRND waitlist.
+              </p>
+              <p style="margin: 8px 0 0; font-size: 11px; color: #8B7B74; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;">
+                © ${new Date().getFullYear()} FRND. All rights reserved.
+              </p>
+            </div>
 
           </div>
         </div>
