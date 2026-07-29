@@ -235,7 +235,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
       }
     };
 
-    await redis.set(statsCacheKey, JSON.stringify(statsPayload), { EX: 60 }).catch(() => {});
+    await redis.set(statsCacheKey, JSON.stringify(statsPayload), { EX: 300 }).catch(() => {});
 
     res.json(statsPayload);
   } catch (err) {

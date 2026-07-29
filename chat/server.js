@@ -63,8 +63,8 @@ async function flushMessages() {
     console.log(`[CHAT] Batch wrote ${batch.length} messages to DB.`);
   } catch (err) {
     console.error('[CHAT] Failed to batch write messages. Re-queueing batch...', err);
-    // Put batch back into messageQueue to avoid silent message loss
-    messageQueue = [...batch, ...messageQueue];
+    // Put batch back into messageQueue to avoid silent message loss (capped at 1000 to prevent OOM)
+    messageQueue = [...batch, ...messageQueue].slice(0, 1000);
   }
 }
 
@@ -286,11 +286,11 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // Heartbeat: rate-limited to 1 Redis write per 25 seconds per socket
+  // Heartbeat: rate-limited to 1 Redis write per 60 seconds per socket (saves Upstash requests & TLS CPU)
   let lastHeartbeat = 0;
   socket.on('heartbeat', async () => {
     const now = Date.now();
-    if (now - lastHeartbeat < 25000) return; // throttle
+    if (now - lastHeartbeat < 60000) return; // 60s throttle
     lastHeartbeat = now;
     await redis.set(presenceKey, '1', { EX: 120 });
   });

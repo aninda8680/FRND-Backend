@@ -1,4 +1,4 @@
-// libuv threadpool: 16 threads is sufficient for 250 concurrent users on 0.1 vCPU free tier
+
 // 128 threads waste ~112MB RAM for zero throughput gain at this scale
 process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '16';
 

@@ -27,6 +27,18 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+// Helper to hash OTP using SHA-256 for fast, low-CPU verification
+function hashOTP(otp) {
+  return crypto.createHash('sha256').update(String(otp)).digest('hex');
+}
+
+function verifyOTP(inputOtp, storedHash) {
+  if (!storedHash || typeof storedHash !== 'string') return false;
+  const inputHash = hashOTP(inputOtp);
+  if (inputHash.length !== storedHash.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(inputHash), Buffer.from(storedHash));
+}
+
 // Helper to send email OTP (console fallback + emailService pool with automatic retry & failover)
 async function sendOTPEmail(email, otp) {
   if (process.env.NODE_ENV !== 'production') {
@@ -112,6 +124,7 @@ router.post('/signup', async (req, res) => {
     }
 
     const cleanEmail = email.toLowerCase().trim();
+    const isCollegeEmail = COLLEGE_EMAIL_REGEX.test(cleanEmail);
 
     // 2. Input length caps & password rules
     if (!validateStringLength(password, 128)) return res.status(400).json({ error: 'Password too long (max 128 chars)' });
@@ -199,10 +212,9 @@ router.post('/signup', async (req, res) => {
       await User.findByIdAndUpdate(user._id, { $inc: { openFlagCount: 1 } });
     }
 
-    // 8. OTP generation for all user signups
+    // 8. OTP generation for all user signups (fast SHA-256 hash)
     const otp = generateOTP();
-    const otpSalt = await bcrypt.genSalt(6);
-    const otpHash = await bcrypt.hash(otp, otpSalt);
+    const otpHash = hashOTP(otp);
 
     // Delete any existing verification records for this email
     await EmailVerification.deleteMany({ email: cleanEmail });
@@ -290,8 +302,8 @@ router.post('/verify-otp', authRequired, async (req, res) => {
       otpHash = dbVerification.otpHash;
     }
 
-    // 5. Compare OTP
-    const isMatch = await bcrypt.compare(otp, otpHash);
+    // 5. Compare OTP (SHA-256 constant-time comparison)
+    const isMatch = verifyOTP(otp, otpHash);
     if (!isMatch) {
       return res.status(400).json({ error: 'Incorrect verification code' });
     }
@@ -338,10 +350,9 @@ router.post('/resend-otp', authRequired, async (req, res) => {
       return res.status(429).json({ error: 'Maximum of 3 OTP resends reached. Please try again later.' });
     }
 
-    // Generate new OTP
+    // Generate new OTP (fast SHA-256 hash)
     const otp = generateOTP();
-    const otpSalt = await bcrypt.genSalt(6);
-    const otpHash = await bcrypt.hash(otp, otpSalt);
+    const otpHash = hashOTP(otp);
 
     // Save to Redis
     await redis.set(`otp:${user.email}`, otpHash, { EX: OTP_TTL_SECONDS });

@@ -45,10 +45,10 @@ function validateStringLength(value, maxLength) {
 const multer = require('multer');
 const { uploadProfilePicture } = require('../utils/uploader');
 
-// Memory storage for multer profile picture upload — with strict MIME type validation
+// Memory storage for multer profile picture upload — with strict MIME type validation (2MB max to preserve RAM)
 const uploadPicture = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB limit
   fileFilter: (req, file, cb) => {
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (allowedMimeTypes.includes(file.mimetype)) {
