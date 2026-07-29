@@ -886,36 +886,43 @@ Report a user or an anonymous post. Requires authentication cookie.
 
 #### POST `/api/posts`
 
-Create an anonymous post. Requires authentication cookie.
+Create an anonymous post/message. Requires authentication cookie or Bearer token. Posts automatically expire and are deleted after 24 hours.
+
+**Tier Quota Limits (rolling 24-hour window):**
+- **Free Users**: **1 post / 24 hours**
+- **Silver Users**: **2 posts / 24 hours**
+- **Gold Users**: **3 posts / 24 hours**
 
 **Body:**
 ```json
-{ "content": "Post content here" }
+{ "content": "Hello campus! Anonymous message here." }
 ```
 
 | Field | Rules |
 |---|---|
-| `content` | Required, max 1000 chars |
+| `content` | Required, max 500 chars |
 
 **Response (201 Created):**
 ```json
 {
-  "message": "Post created successfully",
+  "message": "Anonymous post published successfully",
   "post": {
-    "_id": "651a2b3c4d5e6f7a8b9c0d4b",
-    "content": "Post content here",
-    "postedAt": "2026-07-19T12:00:00.000Z"
-  }
+    "id": "651a2b3c4d5e6f7a8b9c0d4b",
+    "content": "Hello campus! Anonymous message here.",
+    "createdAt": "2026-07-29T18:30:00.000Z"
+  },
+  "tier": "free",
+  "remainingPosts": 0
 }
 ```
 
-> More than 5 posts in an hour triggers a `post_spam` flag (low severity).
+> **Security & Anonymity Note:** Unauthenticated requests are rejected (401 Unauthorized). The author's user ID is strictly omitted from the public response to preserve total anonymity. Quota exhaustion returns `429 Too Many Requests`.
 
 ---
 
 #### GET `/api/posts`
 
-List anonymous posts. Requires authentication cookie.
+List all active anonymous posts from the past 24 hours. Accessible to all authenticated users.
 
 **Query params:** `?page=1&limit=20` (limit capped at 50)
 
@@ -925,13 +932,13 @@ List anonymous posts. Requires authentication cookie.
   "posts": [
     {
       "_id": "651a2b3c4d5e6f7a8b9c0d4b",
-      "content": "Post content here",
-      "postedAt": "2026-07-19T12:00:00.000Z"
+      "content": "Hello campus! Anonymous message here.",
+      "createdAt": "2026-07-29T18:30:00.000Z"
     }
   ],
   "page": 1,
   "limit": 20,
-  "total": 142
+  "total": 1
 }
 ```
 

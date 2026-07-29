@@ -832,25 +832,61 @@ router.post('/report', authRequired, async (req, res) => {
 // 7. ANONYMOUS POSTS
 // ------------------------------------------------------------------
 const POST_SPAM_THRESHOLD = 5;
-const POST_SPAM_WINDOW_SECONDS = 3600; // 1 hour
-const POST_MAX_CONTENT_LENGTH = 1000;
+// ------------------------------------------------------------------
+// 7. ANONYMOUS POSTS & MESSAGES
+// ------------------------------------------------------------------
+// Tier Posting Limits per 24 hours: Free = 1, Silver = 2, Gold = 3
+const TIER_ANONYMOUS_POST_LIMITS = { free: 1, silver: 2, gold: 3 };
 
-// POST /api/posts
+// POST /api/posts (Publish anonymous message with tier quota check)
 router.post('/posts', authRequired, async (req, res) => {
   try {
-    const { content } = req.body;
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+    const user = await User.findById(userId).lean();
+    if (!user || user.banned) {
+      return res.status(403).json({ error: 'Account suspended or not found' });
+    }
 
+    // 1. Calculate active tier (Free = 1, Silver = 2, Gold = 3)
+    const now = new Date();
+    const isSubActive = user.tier && user.tier !== 'free' && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > now);
+    const activeTier = isSubActive ? user.tier : 'free';
+    const dailyLimit = TIER_ANONYMOUS_POST_LIMITS[activeTier] || 1;
+
+    // 2. Check posts published in rolling 24-hour window
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recentPostsCount = await AnonymousPost.countDocuments({
+      userId,
+      createdAt: { $gte: twentyFourHoursAgo }
+    });
+
+    if (recentPostsCount >= dailyLimit) {
+      return res.status(429).json({
+        error: `Daily limit reached (${dailyLimit} post${dailyLimit > 1 ? 's' : ''}/24h for ${activeTier.toUpperCase()} tier). Upgrade your plan or try again in 24 hours.`,
+        tier: activeTier,
+        dailyLimit,
+        used: recentPostsCount
+      });
+    }
+
+    // 3. Input validation
+    const { content } = req.body;
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
       return res.status(400).json({ error: 'Post content is required' });
     }
-    if (!validateStringLength(content, POST_MAX_CONTENT_LENGTH)) {
-      return res.status(400).json({ error: `Post content too long (max ${POST_MAX_CONTENT_LENGTH} chars)` });
+    if (content.trim().length > 500) {
+      return res.status(400).json({ error: 'Post content too long (max 500 chars)' });
     }
 
-    const post = new AnonymousPost({ content: content.trim() });
+    // 4. Save anonymous post
+    const post = new AnonymousPost({
+      userId,
+      content: content.trim(),
+      createdAt: new Date()
+    });
     await post.save();
 
-    // Post spam flagging
+    // 5. Post spam flagging
     const spamKey = `post_spam:${req.user.id}`;
     const postCount = await redis.incr(spamKey);
     if (postCount === 1) {
@@ -858,37 +894,52 @@ router.post('/posts', authRequired, async (req, res) => {
     }
     if (postCount > POST_SPAM_THRESHOLD) {
       const flag = new AccountFlag({
-        userId: new mongoose.Types.ObjectId(req.user.id),
+        userId,
         flagType: 'post_spam',
         severity: 'low',
         details: { postCount, windowSeconds: POST_SPAM_WINDOW_SECONDS },
         status: 'open'
       });
       await flag.save();
-      await User.findByIdAndUpdate(req.user.id, { $inc: { openFlagCount: 1 } });
+      await User.findByIdAndUpdate(userId, { $inc: { openFlagCount: 1 } });
     }
 
-    res.status(201).json({ message: 'Post created successfully', post });
+    res.status(201).json({
+      message: 'Anonymous post published successfully',
+      post: {
+        id: post._id,
+        content: post.content,
+        createdAt: post.createdAt
+      },
+      tier: activeTier,
+      remainingPosts: dailyLimit - (recentPostsCount + 1)
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error creating post' });
   }
 });
 
-// GET /api/posts
+// GET /api/posts (Fetch anonymous feed — accessible to all authenticated users, auto-purges after 24h)
 router.get('/posts', authRequired, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const skip = (page - 1) * limit;
 
-    const posts = await AnonymousPost.find()
-      .sort({ postedAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
+    // Filter to only return posts created within the last 24 hours
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const filter = { createdAt: { $gte: twentyFourHoursAgo } };
 
-    const total = await AnonymousPost.countDocuments();
+    const [posts, total] = await Promise.all([
+      AnonymousPost.find(filter)
+        .select('_id content createdAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      AnonymousPost.countDocuments(filter)
+    ]);
 
     res.json({ posts, page, limit, total });
   } catch (err) {
