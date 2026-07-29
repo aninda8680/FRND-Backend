@@ -175,31 +175,28 @@ router.post('/signup', async (req, res) => {
       await User.findByIdAndUpdate(user._id, { $inc: { openFlagCount: 1 } });
     }
 
-    // 8. OTP generation if college email matched
-    const isCollegeEmail = COLLEGE_EMAIL_REGEX.test(cleanEmail);
-    if (isCollegeEmail) {
-      const otp = generateOTP();
-      const otpSalt = await bcrypt.genSalt(6);
-      const otpHash = await bcrypt.hash(otp, otpSalt);
+    // 8. OTP generation for all user signups
+    const otp = generateOTP();
+    const otpSalt = await bcrypt.genSalt(6);
+    const otpHash = await bcrypt.hash(otp, otpSalt);
 
-      // Delete any existing verification records for this email
-      await EmailVerification.deleteMany({ email: cleanEmail });
+    // Delete any existing verification records for this email
+    await EmailVerification.deleteMany({ email: cleanEmail });
 
-      // Save hashed OTP to Redis
-      await redis.set(`otp:${cleanEmail}`, otpHash, { EX: OTP_TTL_SECONDS });
+    // Save hashed OTP to Redis
+    await redis.set(`otp:${cleanEmail}`, otpHash, { EX: OTP_TTL_SECONDS });
 
-      // Save to MongoDB emailVerifications
-      const verification = new EmailVerification({
-        email: cleanEmail,
-        otpHash,
-        userId: user._id,
-        purpose: 'signup',
-        attempts: 0
-      });
-      await verification.save();
+    // Save to MongoDB emailVerifications
+    const verification = new EmailVerification({
+      email: cleanEmail,
+      otpHash,
+      userId: user._id,
+      purpose: 'signup',
+      attempts: 0
+    });
+    await verification.save();
 
-      await sendOTPEmail(cleanEmail, otp);
-    }
+    await sendOTPEmail(cleanEmail, otp);
 
     // 9. Generate token & login user automatically upon signup
     const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
@@ -239,10 +236,6 @@ router.post('/verify-otp', authRequired, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (!COLLEGE_EMAIL_REGEX.test(user.email)) {
-      return res.status(400).json({ error: 'Verification only required for college emails' });
     }
 
     if (user.emailVerified) {
@@ -301,10 +294,6 @@ router.post('/resend-otp', authRequired, async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (!COLLEGE_EMAIL_REGEX.test(user.email)) {
-      return res.status(400).json({ error: 'Only college emails require verification' });
     }
 
     if (user.emailVerified) {
