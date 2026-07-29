@@ -148,7 +148,6 @@ async function sendEmail({ to, subject, html, headers = {} }) {
       const fromFormatted = formatFromAddress(account.fromEmail);
 
       const emailHeaders = {
-        'List-Unsubscribe': '<mailto:unsubscribe@frnd.buzz>',
         'X-Entity-Ref-ID': crypto.randomUUID(),
         ...headers
       };
