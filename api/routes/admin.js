@@ -847,23 +847,193 @@ router.post('/verification-requests/:id/reject', adminAuthRequired, async (req, 
   }
 });
 
-// GET /api/admin/waitlist
+// GET /api/admin/waitlist (Paginated list + Data Visualizer summary)
 router.get('/waitlist', adminAuthRequired, async (req, res) => {
   try {
     const { page, limit, skip } = getPagination(req.query);
     const Waitlist = require('../models/Waitlist');
-    const [entries, total] = await Promise.all([
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const [entries, total, visualizerAgg, allEmails] = await Promise.all([
       Waitlist.find({})
-        .sort({ joinedAt: -1 })
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      Waitlist.countDocuments({})
+      Waitlist.countDocuments({}),
+      Waitlist.aggregate([
+        {
+          $facet: {
+            dailyTimeline: [
+              { $match: { createdAt: { $gte: thirtyDaysAgo } } },
+              {
+                $group: {
+                  _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { _id: 1 } }
+            ],
+            platforms: [
+              { $match: { platform: { $exists: true, $ne: "" } } },
+              {
+                $group: {
+                  _id: "$platform",
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { count: -1 } },
+              { $limit: 5 }
+            ],
+            topCities: [
+              { $match: { city: { $exists: true, $ne: "" } } },
+              {
+                $group: {
+                  _id: "$city",
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { count: -1 } },
+              { $limit: 5 }
+            ]
+          }
+        }
+      ]),
+      Waitlist.find({ email: { $exists: true, $ne: "" } }).select('email').lean()
     ]);
-    res.json({ entries, page, limit, total });
+
+    // Domain & College email analysis across total dataset
+    let collegeCount = 0;
+    let generalCount = 0;
+    const domainCounts = {};
+
+    allEmails.forEach(item => {
+      if (item.email && item.email.includes('@')) {
+        const domain = item.email.split('@')[1].toLowerCase().trim();
+        domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+        if (domain.includes('.edu') || domain.includes('.ac.in') || domain.includes('adamasuniversity')) {
+          collegeCount++;
+        } else {
+          generalCount++;
+        }
+      }
+    });
+
+    const topDomains = Object.entries(domainCounts)
+      .map(([domain, count]) => ({ domain, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const timeline = (visualizerAgg[0]?.dailyTimeline || []).map(t => ({ date: t._id, count: t.count }));
+    const platforms = (visualizerAgg[0]?.platforms || []).map(p => ({ name: p._id, count: p.count }));
+    const cities = (visualizerAgg[0]?.topCities || []).map(c => ({ city: c._id, count: c.count }));
+
+    const visualizer = {
+      totalEntries: total,
+      collegeVsGeneral: { collegeCount, generalCount },
+      topDomains,
+      platforms,
+      topCities: cities,
+      dailyTimeline: timeline
+    };
+
+    res.json({ entries, page, limit, total, visualizer });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error fetching waitlist' });
+  }
+});
+
+// GET /api/admin/waitlist/visualizer (Dedicated Data Visualizer analytics endpoint for charts UI)
+router.get('/waitlist/visualizer', adminAuthRequired, async (req, res) => {
+  try {
+    const Waitlist = require('../models/Waitlist');
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const [total, visualizerAgg, allEmails] = await Promise.all([
+      Waitlist.countDocuments({}),
+      Waitlist.aggregate([
+        {
+          $facet: {
+            dailyTimeline: [
+              { $match: { createdAt: { $gte: thirtyDaysAgo } } },
+              {
+                $group: {
+                  _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { _id: 1 } }
+            ],
+            platforms: [
+              { $match: { platform: { $exists: true, $ne: "" } } },
+              {
+                $group: {
+                  _id: "$platform",
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { count: -1 } },
+              { $limit: 5 }
+            ],
+            topCities: [
+              { $match: { city: { $exists: true, $ne: "" } } },
+              {
+                $group: {
+                  _id: "$city",
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { count: -1 } },
+              { $limit: 5 }
+            ]
+          }
+        }
+      ]),
+      Waitlist.find({ email: { $exists: true, $ne: "" } }).select('email').lean()
+    ]);
+
+    let collegeCount = 0;
+    let generalCount = 0;
+    const domainCounts = {};
+
+    allEmails.forEach(item => {
+      if (item.email && item.email.includes('@')) {
+        const domain = item.email.split('@')[1].toLowerCase().trim();
+        domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+        if (domain.includes('.edu') || domain.includes('.ac.in') || domain.includes('adamasuniversity')) {
+          collegeCount++;
+        } else {
+          generalCount++;
+        }
+      }
+    });
+
+    const topDomains = Object.entries(domainCounts)
+      .map(([domain, count]) => ({ domain, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const timeline = (visualizerAgg[0]?.dailyTimeline || []).map(t => ({ date: t._id, count: t.count }));
+    const platforms = (visualizerAgg[0]?.platforms || []).map(p => ({ name: p._id, count: p.count }));
+    const cities = (visualizerAgg[0]?.topCities || []).map(c => ({ city: c._id, count: c.count }));
+
+    res.json({
+      visualizer: {
+        totalEntries: total,
+        collegeVsGeneral: { collegeCount, generalCount },
+        topDomains,
+        platforms,
+        topCities: cities,
+        dailyTimeline: timeline
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error generating waitlist data visualizer analytics' });
   }
 });
 
