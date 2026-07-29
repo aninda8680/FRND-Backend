@@ -1066,7 +1066,9 @@ router.post('/waitlist', async (req, res) => {
         </div>
       `;
 
-      await emailService.sendEmail({ to: cleanEmail, subject, html });
+      const text = `Welcome to FRND\n\nHi there,\n\nThanks for joining the waitlist for FRND. We've reserved your spot on our list.\n\nWe are building an intentional space for campus students to connect, and we will let you know as soon as access opens for your campus.\n\nIf you have any questions or feedback in the meantime, feel free to reply directly to this email.\n\nBest,\nThe FRND Team`;
+
+      await emailService.sendEmail({ to: cleanEmail, subject, text, html });
     }
 
     res.status(201).json({ message: 'Successfully joined the waitlist!' });

@@ -108,10 +108,26 @@ async function getOrInitEmailConfig() {
   return config;
 }
 
+// Utility to convert HTML string to clean plain text for multipart/alternative emails
+function htmlToPlainText(html) {
+  if (!html) return '';
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n\s*\n/g, '\n\n')
+    .trim();
+}
+
 /**
  * Send an email with automatic failover and instant retries across configured Resend accounts
+ * Constructs multipart/alternative email by sending both plain text and HTML payloads.
  */
-async function sendEmail({ to, subject, html, headers = {} }) {
+async function sendEmail({ to, subject, html, text, headers = {} }) {
   const config = await getOrInitEmailConfig();
 
   if (!config.accounts || config.accounts.length === 0) {
@@ -146,6 +162,7 @@ async function sendEmail({ to, subject, html, headers = {} }) {
       const resend = new Resend(account.apiKey);
       const recipientList = Array.isArray(to) ? to : [to];
       const fromFormatted = formatFromAddress(account.fromEmail);
+      const plainText = text || htmlToPlainText(html);
 
       const emailHeaders = {
         'X-Entity-Ref-ID': crypto.randomUUID(),
@@ -159,6 +176,7 @@ async function sendEmail({ to, subject, html, headers = {} }) {
         reply_to: 'contact@frnd.buzz',
         subject,
         headers: emailHeaders,
+        text: plainText,
         html
       };
 

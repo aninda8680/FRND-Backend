@@ -67,7 +67,9 @@ async function sendOTPEmail(email, otp) {
     </div>
   `;
 
-  await emailService.sendEmail({ to: email, subject, html });
+  const text = `Verification Code\n\nUse the verification code below to complete your sign-in to FRND:\n\n${otp}\n\nThis code will expire in 10 minutes. If you did not request this code, you can safely ignore this message.\n\nBest,\nThe FRND Team`;
+
+  await emailService.sendEmail({ to: email, subject, text, html });
 }
 
 // Input length validation helper
