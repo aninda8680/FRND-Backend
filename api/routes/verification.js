@@ -5,7 +5,6 @@ const User = require('../models/User');
 const AccountFlag = require('../models/AccountFlag');
 const IdentityVerificationRequest = require('../models/IdentityVerificationRequest');
 const { authRequired } = require('../middleware/auth');
-const { computeImageHash } = require('../utils/imageHash');
 const { uploadVerificationImage } = require('../utils/uploader');
 
 // Memory storage for multer — with strict MIME type validation
@@ -65,44 +64,25 @@ async function handleIdentitySubmit(req, res, isResubmit = false) {
       return res.status(400).json({ error: 'Invalid file content. Only real JPEG, PNG, or WebP images are accepted.' });
     }
 
-    // 1. Compute perceptual hashes
-    const idCardHash = await computeImageHash(idCardFile.buffer);
-    const faceHash = await computeImageHash(faceFile.buffer);
-
-    // 2. Check for duplicates against other users' requests
-    const duplicate = await IdentityVerificationRequest.findOne({
-      $and: [
-        { userId: { $ne: user._id } },
-        {
-          $or: [
-            { idCardHash: idCardHash },
-            { faceHash: faceHash }
-          ]
-        }
-      ]
-    });
-
-    // 3. Upload images to Cloudinary (or local fallback in dev)
+    // 1. Upload images to Cloudinary / CDN (or local fallback in dev)
     const idCardUpload = await uploadVerificationImage(idCardFile);
     const faceUpload = await uploadVerificationImage(faceFile);
 
-    // 4. Save verification request
+    // 2. Save verification request
     const verificationRequest = new IdentityVerificationRequest({
       userId: user._id,
       idCardImage: idCardUpload,
       faceImage: faceUpload,
-      idCardHash,
-      faceHash,
       status: 'pending',
       submittedAt: new Date()
     });
     await verificationRequest.save();
 
-    // 5. Update user status to pending
+    // 3. Update user status to pending
     user.identityStatus = 'pending';
     await user.save();
 
-    // 6. If this is a resubmit, check for repeated rejection flag
+    // 4. If this is a resubmit, check for repeated rejection flag
     if (isResubmit) {
       const priorRejections = await IdentityVerificationRequest.countDocuments({
         userId: user._id,
@@ -119,22 +99,6 @@ async function handleIdentitySubmit(req, res, isResubmit = false) {
         await flag.save();
         await User.findByIdAndUpdate(user._id, { $inc: { openFlagCount: 1 } });
       }
-    }
-
-    // 7. If duplicate was found, create high-severity flag
-    if (duplicate) {
-      const flag = new AccountFlag({
-        userId: user._id,
-        flagType: 'duplicate_identity_document',
-        severity: 'high',
-        details: {
-          duplicateWithUserId: duplicate.userId,
-          matchedOn: duplicate.idCardHash === idCardHash ? 'idCard' : 'face'
-        },
-        status: 'open'
-      });
-      await flag.save();
-      await User.findByIdAndUpdate(user._id, { $inc: { openFlagCount: 1 } });
     }
 
     res.status(201).json({

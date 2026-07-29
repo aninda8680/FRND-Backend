@@ -96,29 +96,6 @@ async function runTests() {
   assert.strictEqual(res3.body.error, 'You can only resubmit if your verification status is unverified');
   console.log('✓ Resubmission on wrong state blocked.');
 
-  // Test 4: Duplicate verification hash triggers account flagging
-  console.log('Testing Test 4: Duplicate verification detection...');
-  // Force user status back to not_submitted to allow a new submission
-  mockUser.identityStatus = 'not_submitted';
-  // Create another user to own the original request
-  const originalUserRequest = {
-    userId: new mongoose.Types.ObjectId(),
-    idCardHash: mockRequests[0].idCardHash,
-    faceHash: mockRequests[0].faceHash
-  };
-  mockRequests.push(originalUserRequest);
-
-  const res4 = await request(app)
-    .post('/api/verification/identity/submit')
-    .attach('idCard', dummyBuffer, 'id_card.png')
-    .attach('face', dummyBuffer, 'face.png');
-
-  assert.strictEqual(res4.status, 201);
-  assert.strictEqual(mockFlags.length, 1);
-  assert.strictEqual(mockFlags[0].flagType, 'duplicate_identity_document');
-  assert.strictEqual(mockFlags[0].severity, 'high');
-  console.log('✓ Duplicate hashes correctly flagged.');
-
   console.log('--- Verification Flow Testing Succeeded! ---');
   process.exit(0);
 }

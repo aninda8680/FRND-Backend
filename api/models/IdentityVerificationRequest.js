@@ -16,12 +16,12 @@ const identityVerificationRequestSchema = new mongoose.Schema({
   },
   idCardHash: {
     type: String,
-    required: true,
+    required: false,
     index: true
   },
   faceHash: {
     type: String,
-    required: true,
+    required: false,
     index: true
   },
   status: {
