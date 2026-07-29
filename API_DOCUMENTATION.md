@@ -399,8 +399,8 @@ Update authenticated user's profile information, interests, and prompt answers d
 
 | Feature | Free Tier | Silver Pass (₹39/mo Autopay) | Gold Pass (₹49/mo Autopay) |
 |---|---|---|---|
-| **Price** | ₹0 | **₹39 / 30 Days** | **₹49 / 30 Days** |
-| **Autopay Recurring** | No | **Yes (Auto-renews every 30 days)** | **Yes (Auto-renews every 30 days)** |
+| **Price** | ₹0 | **₹39 / 28 Days** | **₹49 / 28 Days** |
+| **Autopay Recurring** | No | **Yes (Auto-renews every 28 days)** | **Yes (Auto-renews every 28 days)** |
 | **Normal Likes** | 15 / day | 25 / day | 50 / day |
 | **Super Likes** | 3 / day | 6 / day | 12 / day |
 | **Feed Profile Boost** | 1x Standard | 3x Higher Visibility | 6x Maximum Visibility |
@@ -415,11 +415,11 @@ Fetch all available subscription tier configurations and pricing. No authenticat
 ```json
 {
   "currency": "INR",
-  "billingCycle": "30 Days Autopay Recurring",
+  "billingCycle": "28 Days Autopay Recurring",
   "tiers": {
-    "free": { "tier": "free", "name": "Free Tier", "priceINR": 0, "pricePaise": 0, "validityDays": 30, "likesLimit": 15, "superlikesLimit": 3, "profileBoost": 1, "isAutopay": false },
-    "silver": { "tier": "silver", "name": "Silver Pass Autopay", "priceINR": 39, "pricePaise": 3900, "validityDays": 30, "likesLimit": 25, "superlikesLimit": 6, "profileBoost": 3, "isAutopay": true },
-    "gold": { "tier": "gold", "name": "Gold Pass Autopay", "priceINR": 49, "pricePaise": 4900, "validityDays": 30, "likesLimit": 50, "superlikesLimit": 12, "profileBoost": 6, "isAutopay": true }
+    "free": { "tier": "free", "name": "Free Tier", "priceINR": 0, "pricePaise": 0, "validityDays": 28, "likesLimit": 15, "superlikesLimit": 3, "profileBoost": 1, "isAutopay": false },
+    "silver": { "tier": "silver", "name": "Silver Pass Autopay", "priceINR": 39, "pricePaise": 3900, "validityDays": 28, "likesLimit": 25, "superlikesLimit": 6, "profileBoost": 3, "isAutopay": true },
+    "gold": { "tier": "gold", "name": "Gold Pass Autopay", "priceINR": 49, "pricePaise": 4900, "validityDays": 28, "likesLimit": 50, "superlikesLimit": 12, "profileBoost": 6, "isAutopay": true }
   }
 }
 ```
@@ -449,7 +449,7 @@ Initialize a Razorpay Autopay Subscription for Silver or Gold tier. Requires aut
   "keyId": "rzp_test_...",
   "tier": "gold",
   "tierName": "Gold Pass Autopay",
-  "validityDays": 30,
+  "validityDays": 28,
   "isAutopay": true
 }
 ```
@@ -458,7 +458,7 @@ Initialize a Razorpay Autopay Subscription for Silver or Gold tier. Requires aut
 
 #### POST `/api/payments/verify-subscription`
 
-Verify the Razorpay Autopay subscription signature and activate 30-day recurring validity. Requires authentication cookie or Bearer token. *(Alias: `POST /api/payments/verify`)*
+Verify the Razorpay Autopay subscription signature and activate 28-day recurring validity. Requires authentication cookie or Bearer token. *(Alias: `POST /api/payments/verify`)*
 
 **Body:**
 ```json
@@ -472,7 +472,7 @@ Verify the Razorpay Autopay subscription signature and activate 30-day recurring
 **Response (200 OK):**
 ```json
 {
-  "message": "🎉 Gold Pass Autopay activated! Autopay will automatically renew every 30 days.",
+  "message": "🎉 Gold Pass Autopay activated! Autopay will automatically renew every 28 days.",
   "tier": "gold",
   "isPremium": true,
   "autopayStatus": "active",
@@ -489,12 +489,12 @@ Verify the Razorpay Autopay subscription signature and activate 30-day recurring
 
 #### POST `/api/payments/cancel-subscription`
 
-Cancel recurring Autopay subscription. The user keeps Silver/Gold benefits until their current 30-day period expires. Requires authentication cookie or Bearer token.
+Cancel recurring Autopay subscription. The user keeps Silver/Gold benefits until their current 28-day period expires. Requires authentication cookie or Bearer token.
 
 **Response (200 OK):**
 ```json
 {
-  "message": "Autopay recurring subscription cancelled successfully. Your benefits remain active until your current 30-day period expires.",
+  "message": "Autopay recurring subscription cancelled successfully. Your benefits remain active until your current 28-day period expires.",
   "autopayStatus": "cancelled",
   "tier": "gold",
   "subscriptionExpiresAt": "2026-08-20T18:00:00.000Z"
@@ -514,7 +514,7 @@ Fetch current user tier status, autopay state, remaining validity days, and acti
   "isPremium": true,
   "autopayStatus": "active",
   "subscriptionExpiresAt": "2026-08-20T18:00:00.000Z",
-  "validityDaysRemaining": 30,
+  "validityDaysRemaining": 28,
   "limits": {
     "likesLimit": 50,
     "superlikesLimit": 12,
@@ -527,7 +527,7 @@ Fetch current user tier status, autopay state, remaining validity days, and acti
 
 #### POST `/api/payments/webhook`
 
-Razorpay server-to-server webhook callback for automated 30-day Autopay renewals (`subscription.charged`, `payment.captured`). Validates HMAC `x-razorpay-signature` header using `RAZORPAY_WEBHOOK_SECRET`.
+Razorpay server-to-server webhook callback for automated 28-day Autopay renewals (`subscription.charged`, `payment.captured`). Validates HMAC `x-razorpay-signature` header using `RAZORPAY_WEBHOOK_SECRET`.
 
 ---
 

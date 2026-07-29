@@ -1,10 +1,12 @@
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/Admin');
+const User = require('../models/User');
+const redis = require('../utils/redis');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-in-production';
 
 // Regular user authentication middleware (via HTTP-only cookie or Authorization header fallback)
-const authRequired = (req, res, next) => {
+const authRequired = async (req, res, next) => {
   try {
     let token;
 
@@ -34,6 +36,22 @@ const authRequired = (req, res, next) => {
     // Ensure this is not an admin token being used for user endpoints
     if (decoded.aud === 'admin-panel') {
       return res.status(403).json({ error: 'Forbidden: admin account cannot access user routes' });
+    }
+
+    // Fast ban check using Redis cache, falling back to Mongo
+    const banKey = `banned:${decoded.id}`;
+    let isBanned = await redis.get(banKey);
+    if (isBanned === null || isBanned === undefined) {
+      const user = await User.findById(decoded.id).select('banned').lean();
+      if (!user) {
+        return res.status(401).json({ error: 'User account not found' });
+      }
+      isBanned = user.banned ? '1' : '0';
+      await redis.set(banKey, isBanned, { EX: 300 });
+    }
+
+    if (isBanned === '1' || isBanned === true) {
+      return res.status(403).json({ error: 'Your account has been suspended.' });
     }
 
     req.user = decoded;

@@ -288,8 +288,14 @@ router.get('/discover', authRequired, async (req, res) => {
       const dislikedUserIds = sentDislikes.map(d => d.toUserId);
       const matchedUserIds = matches.map(m => String(m.userA) === String(userId) ? m.userB : m.userA);
 
-      // D. Build complete exclusion list (Self, Blocked, Liked, Disliked, Matched)
-      const excludedIds = [userId, ...blockedUserIds, ...likedUserIds, ...dislikedUserIds, ...matchedUserIds];
+      // D. Build complete exclusion list (Self, Blocked, recent Liked/Disliked up to 1000, Matched)
+      const excludedIds = [
+        userId,
+        ...blockedUserIds,
+        ...likedUserIds.slice(-1000),
+        ...dislikedUserIds.slice(-1000),
+        ...matchedUserIds
+      ];
 
       // E. Discovery query
       const query = {
@@ -521,7 +527,7 @@ async function handleLikeAction(req, res, actionType) {
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(dataString),
-          'x-internal-secret': process.env.INTERNAL_NOTIFY_SECRET || ''
+          'x-internal-secret': process.env.INTERNAL_NOTIFY_SECRET || 'internal-secret-change-in-production'
         }
       });
       notifReq.setTimeout(1500, () => {
@@ -761,10 +767,12 @@ router.get('/matches', authRequired, async (req, res) => {
       .lean();
     const partnerMap = Object.fromEntries(partnerUsers.map(u => [u._id.toString(), u]));
 
-    // Batch-fetch all presence keys in parallel (one Upstash HTTP call each, but concurrent)
-    const presenceResults = await Promise.all(
-      partnerIds.map(id => redis.get(`presence:${id.toString()}`))
-    );
+    // Batch-fetch all presence keys in 1 round-trip via redis.mget
+    let presenceResults = [];
+    if (partnerIds.length > 0) {
+      const presenceKeys = partnerIds.map(id => `presence:${id.toString()}`);
+      presenceResults = await redis.mget(...presenceKeys).catch(() => []);
+    }
     const presenceMap = Object.fromEntries(
       partnerIds.map((id, i) => [id.toString(), !!presenceResults[i]])
     );

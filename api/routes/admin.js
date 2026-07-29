@@ -483,6 +483,7 @@ async function transitionFlag(req, res, targetStatus, autoBanUser = false) {
         banned: true,
         banReason: `Banned during flag actioning: ${flag.flagType}`
       };
+      await redis.set(`banned:${flag.userId}`, '1', { EX: 86400 * 30 }).catch(() => {});
     }
     await User.findByIdAndUpdate(flag.userId, updateOp);
 
@@ -571,6 +572,7 @@ router.post('/users/:id/ban', adminAuthRequired, async (req, res) => {
 
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    await redis.set(`banned:${user._id}`, '1', { EX: 86400 * 30 }).catch(() => {});
     await logAdminAction(req.admin._id, 'ban_user', user._id, { reason: reason.trim() });
 
     res.json({ message: 'User banned successfully', user });
@@ -594,6 +596,7 @@ router.post('/users/:id/unban', adminAuthRequired, async (req, res) => {
 
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    await redis.set(`banned:${user._id}`, '0', { EX: 300 }).catch(() => {});
     await logAdminAction(req.admin._id, 'unban_user', user._id, {});
 
     res.json({ message: 'User unbanned successfully', user });

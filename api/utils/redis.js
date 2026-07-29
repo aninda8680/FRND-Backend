@@ -9,6 +9,11 @@ const redis = {
   get: async (key) => {
     return await redisClient.get(key);
   },
+  mget: async (...keys) => {
+    const flatKeys = keys.flat().filter(Boolean);
+    if (flatKeys.length === 0) return [];
+    return await redisClient.mget(...flatKeys);
+  },
   set: async (key, value, options) => {
     let opts = {};
     if (options) {

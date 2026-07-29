@@ -306,11 +306,11 @@ app.use(express.json());
 
 // Internal Notification Bridge — secured with shared secret header
 // Receives like/match events from REST API and relays via WebSockets
-const INTERNAL_NOTIFY_SECRET = process.env.INTERNAL_NOTIFY_SECRET;
+const INTERNAL_NOTIFY_SECRET = process.env.INTERNAL_NOTIFY_SECRET || 'internal-secret-change-in-production';
 app.post('/internal/notify', async (req, res) => {
   try {
     // Security: reject calls without the correct shared internal secret
-    if (INTERNAL_NOTIFY_SECRET && req.headers['x-internal-secret'] !== INTERNAL_NOTIFY_SECRET) {
+    if (req.headers['x-internal-secret'] !== INTERNAL_NOTIFY_SECRET) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 

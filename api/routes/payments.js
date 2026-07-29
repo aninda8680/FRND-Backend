@@ -18,7 +18,7 @@ function getRazorpayInstance() {
   };
 }
 
-// Tier Autopay Subscription Configuration (30-day recurring cycles)
+// Tier Autopay Subscription Configuration (28-day recurring cycles)
 const TIER_CONFIG = {
   free: {
     tier: 'free',
@@ -27,7 +27,7 @@ const TIER_CONFIG = {
     pricePaise: 0,
     period: 'monthly',
     interval: 1,
-    validityDays: 30,
+    validityDays: 28,
     likesLimit: 15,
     superlikesLimit: 3,
     profileBoost: 1,
@@ -40,7 +40,7 @@ const TIER_CONFIG = {
     pricePaise: 3900,
     period: 'monthly',
     interval: 1,
-    validityDays: 30,
+    validityDays: 28,
     likesLimit: 25,
     superlikesLimit: 6,
     profileBoost: 3,
@@ -53,7 +53,7 @@ const TIER_CONFIG = {
     pricePaise: 4900,
     period: 'monthly',
     interval: 1,
-    validityDays: 30,
+    validityDays: 28,
     likesLimit: 50,
     superlikesLimit: 12,
     profileBoost: 6,
@@ -65,7 +65,7 @@ const TIER_CONFIG = {
 router.get('/tiers', (req, res) => {
   res.json({
     currency: 'INR',
-    billingCycle: '30 Days Autopay Recurring',
+    billingCycle: '28 Days Autopay Recurring',
     tiers: TIER_CONFIG
   });
 });
@@ -89,7 +89,7 @@ async function getOrCreateRazorpayPlan(razorpay, tier) {
         name: tierInfo.name,
         amount: tierInfo.pricePaise,
         currency: 'INR',
-        description: `${tierInfo.name} - 30 days recurring subscription`
+        description: `${tierInfo.name} - 28 days recurring subscription`
       }
     });
     return plan.id;
@@ -223,9 +223,9 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'Invalid subscription signature. Verification failed.' });
     }
 
-    // Set 30 Days Expiry
+    // Set 28 Days Expiry
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000);
 
     payment.status = 'active';
     payment.razorpayPaymentId = razorpay_payment_id || payment.razorpayPaymentId || `pay_sim_${Date.now()}`;
@@ -254,7 +254,7 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
     await redis.del(`discover:${req.user.id}`);
 
     res.json({
-      message: `🎉 ${TIER_CONFIG[payment.tier].name} activated! Autopay will automatically renew every 30 days.`,
+      message: `🎉 ${TIER_CONFIG[payment.tier].name} activated! Autopay will automatically renew every 28 days.`,
       tier: updatedUser.tier,
       isPremium: updatedUser.isPremium,
       autopayStatus: updatedUser.autopayStatus,
@@ -305,7 +305,7 @@ router.post('/cancel-subscription', authRequired, async (req, res) => {
     );
 
     res.json({
-      message: 'Autopay recurring subscription cancelled successfully. Your benefits remain active until your current 30-day period expires.',
+      message: 'Autopay recurring subscription cancelled successfully. Your benefits remain active until your current 28-day period expires.',
       autopayStatus: 'cancelled',
       tier: user.tier,
       subscriptionExpiresAt: user.subscriptionExpiresAt
@@ -366,11 +366,11 @@ router.post('/webhook', async (req, res) => {
         const user = await User.findOne({ razorpaySubscriptionId: subscriptionId });
         if (user) {
           const now = new Date();
-          // Add 30 Days from current expiration (or now if expired)
+          // Add 28 Days from current expiration (or now if expired)
           const baseDate = (user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt) > now) 
             ? new Date(user.subscriptionExpiresAt) 
             : now;
-          const newExpiresAt = new Date(baseDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+          const newExpiresAt = new Date(baseDate.getTime() + 28 * 24 * 60 * 60 * 1000);
 
           user.tier = user.tier === 'free' ? 'silver' : user.tier; // Keep gold/silver tier
           user.isPremium = true;
@@ -423,7 +423,7 @@ router.get('/subscription-status', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Auto-check expiration (if 30 days passed and autopay is not active)
+    // Auto-check expiration (if 28 days passed and autopay is not active)
     if (user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt) < new Date()) {
       if (user.autopayStatus === 'cancelled' || user.autopayStatus === 'halted' || user.autopayStatus === 'none') {
         user = await User.findByIdAndUpdate(
