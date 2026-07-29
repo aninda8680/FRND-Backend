@@ -16,6 +16,7 @@ const redis = {
       if (options.ex) opts.ex = options.ex;
       if (options.PX) opts.px = options.PX;
       if (options.px) opts.px = options.px;
+      if (options.NX || options.nx) opts.nx = true;
     }
     return await redisClient.set(key, String(value), opts);
   },

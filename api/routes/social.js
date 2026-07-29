@@ -350,6 +350,10 @@ router.get('/discover', authRequired, async (req, res) => {
 // ------------------------------------------------------------------
 async function handleLikeAction(req, res, actionType) {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.targetId)) {
+      return res.status(400).json({ error: 'Invalid target user ID format' });
+    }
+
     const fromUserId = new mongoose.Types.ObjectId(req.user.id);
     const toUserId = new mongoose.Types.ObjectId(req.params.targetId);
 
@@ -548,6 +552,10 @@ async function handleLikeAction(req, res, actionType) {
 // POST /api/dislike/:targetId & POST /api/pass/:targetId (Left swipe / pass profile)
 async function handleDislikeAction(req, res) {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.targetId)) {
+      return res.status(400).json({ error: 'Invalid target user ID format' });
+    }
+
     const fromUserId = new mongoose.Types.ObjectId(req.user.id);
     const toUserId = new mongoose.Types.ObjectId(req.params.targetId);
 
@@ -788,6 +796,10 @@ router.get('/matches', authRequired, async (req, res) => {
 // POST /api/block/:targetId
 router.post('/block/:targetId', authRequired, async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.targetId)) {
+      return res.status(400).json({ error: 'Invalid target user ID format' });
+    }
+
     const blockerId = new mongoose.Types.ObjectId(req.user.id);
     const blockedId = new mongoose.Types.ObjectId(req.params.targetId);
 
@@ -830,6 +842,10 @@ router.post('/block/:targetId', authRequired, async (req, res) => {
 // DELETE /api/block/:targetId
 router.delete('/block/:targetId', authRequired, async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.targetId)) {
+      return res.status(400).json({ error: 'Invalid target user ID format' });
+    }
+
     const blockerId = new mongoose.Types.ObjectId(req.user.id);
     const blockedId = new mongoose.Types.ObjectId(req.params.targetId);
 
@@ -848,7 +864,7 @@ router.delete('/block/:targetId', authRequired, async (req, res) => {
 router.post('/report', authRequired, async (req, res) => {
   try {
     const reporterId = new mongoose.Types.ObjectId(req.user.id);
-    const { targetUserId, targetPostId, reason } = req.body;
+    const { targetUserId, targetPostId, reason } = req.body || {};
 
     if (!reason || !validateStringLength(reason, 1000)) {
       return res.status(400).json({ error: 'Reason is required (max 1000 chars)' });
@@ -856,6 +872,14 @@ router.post('/report', authRequired, async (req, res) => {
 
     if (!targetUserId && !targetPostId) {
       return res.status(400).json({ error: 'Either targetUserId or targetPostId is required' });
+    }
+
+    if (targetUserId && !mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({ error: 'Invalid targetUserId format' });
+    }
+
+    if (targetPostId && !mongoose.Types.ObjectId.isValid(targetPostId)) {
+      return res.status(400).json({ error: 'Invalid targetPostId format' });
     }
 
     const report = new Report({
@@ -907,7 +931,15 @@ const TIER_ANONYMOUS_POST_LIMITS = { free: 1, silver: 2, gold: 3 };
 
 // POST /api/posts (Publish anonymous message with tier quota check)
 router.post('/posts', authRequired, async (req, res) => {
+  const lockKey = `post_lock:${req.user.id}`;
+  let lockAcquired = false;
   try {
+    const lockResult = await redis.set(lockKey, '1', { EX: 5, NX: true });
+    if (!lockResult) {
+      return res.status(429).json({ error: 'A post creation is already in progress. Please try again in a moment.' });
+    }
+    lockAcquired = true;
+
     const userId = new mongoose.Types.ObjectId(req.user.id);
     const user = await User.findById(userId).lean();
     if (!user || user.banned) {
@@ -984,6 +1016,10 @@ router.post('/posts', authRequired, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error creating post' });
+  } finally {
+    if (lockAcquired) {
+      await redis.del(lockKey).catch(() => {});
+    }
   }
 });
 

@@ -11,9 +11,9 @@ const authRequired = (req, res, next) => {
     // A. Try reading cookie
     const cookieHeader = req.headers.cookie;
     if (cookieHeader) {
-      const tokenCookie = cookieHeader.split('; ').find(row => row.startsWith('token='));
+      const tokenCookie = cookieHeader.split(';').map(c => c.trim()).find(row => row.startsWith('token='));
       if (tokenCookie) {
-        token = tokenCookie.split('=')[1];
+        token = tokenCookie.substring(6);
       }
     }
 

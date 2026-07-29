@@ -106,9 +106,9 @@ router.post('/signup', async (req, res) => {
   try {
     const { email, username, password, name, age, gender, lookingFor, bio, religion, beliefs } = req.body;
 
-    // 1. Basic presence validation
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Required fields: email, password' });
+    // 1. Basic presence & type validation
+    if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Required fields: email, password (must be strings)' });
     }
 
     const cleanEmail = email.toLowerCase().trim();
@@ -376,8 +376,8 @@ router.post('/resend-otp', authRequired, async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { identity, password } = req.body; // identity can be email or username
-    if (!identity || !password) {
-      return res.status(400).json({ error: 'Required: identity (email/username) and password' });
+    if (!identity || !password || typeof identity !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Required: identity (email/username) and password must be non-empty strings' });
     }
 
     const cleanIdentity = identity.trim().toLowerCase();
@@ -893,8 +893,8 @@ router.get('/reset-password', async (req, res) => {
 router.post('/reset-password', async (req, res) => {
   try {
     const { email, token, newPassword } = req.body;
-    if (!email || !token || !newPassword) {
-      return res.status(400).json({ error: 'Required fields: email, token, newPassword' });
+    if (!email || !token || !newPassword || typeof email !== 'string' || typeof token !== 'string' || typeof newPassword !== 'string') {
+      return res.status(400).json({ error: 'Required fields: email, token, newPassword (must be non-empty strings)' });
     }
 
     const cleanEmail = email.trim().toLowerCase();

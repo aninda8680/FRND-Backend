@@ -54,6 +54,17 @@ async function handleIdentitySubmit(req, res, isResubmit = false) {
       return res.status(400).json({ error: 'Verification request already submitted or verified' });
     }
 
+    // Magic-byte validation: verify actual file content matches allowed image types
+    const fileTypeModule = await import('file-type');
+    const ft = fileTypeModule.default || fileTypeModule;
+    const detectedIdCard = await ft.fromBuffer(idCardFile.buffer);
+    const detectedFace = await ft.fromBuffer(faceFile.buffer);
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!detectedIdCard || !allowedTypes.includes(detectedIdCard.mime) ||
+        !detectedFace || !allowedTypes.includes(detectedFace.mime)) {
+      return res.status(400).json({ error: 'Invalid file content. Only real JPEG, PNG, or WebP images are accepted.' });
+    }
+
     // 1. Compute perceptual hashes
     const idCardHash = await computeImageHash(idCardFile.buffer);
     const faceHash = await computeImageHash(faceFile.buffer);

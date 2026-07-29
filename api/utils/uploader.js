@@ -19,6 +19,12 @@ if (isCloudinaryConfigured) {
   console.warn('Cloudinary not configured. Falling back to local disk storage for uploaded files.');
 }
 
+function getSafeExtension(originalname, defaultExt = '.jpg') {
+  const ext = path.extname(path.basename(originalname || '')).toLowerCase();
+  const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+  return allowed.includes(ext) ? ext : defaultExt;
+}
+
 /**
  * Uploads a file buffer/file to Cloudinary or falls back to local storage.
  * @param {Object} file - The file object from multer (buffer and originalname)
@@ -50,7 +56,8 @@ async function uploadVerificationImage(file) {
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
-    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
+    const ext = getSafeExtension(file.originalname, '.png');
+    const filename = `id_${Date.now()}_${Math.round(Math.random() * 1e9)}${ext}`;
     const filePath = path.join(uploadsDir, filename);
     
     fs.writeFileSync(filePath, file.buffer);
@@ -109,7 +116,8 @@ async function uploadProfilePicture(file) {
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
-    const filename = `pic_${Date.now()}_${Math.round(Math.random() * 1e9)}${path.extname(file.originalname || '.jpg')}`;
+    const ext = getSafeExtension(file.originalname, '.jpg');
+    const filename = `pic_${Date.now()}_${Math.round(Math.random() * 1e9)}${ext}`;
     const filePath = path.join(uploadsDir, filename);
     
     fs.writeFileSync(filePath, file.buffer);

@@ -24,6 +24,8 @@ const matchSchema = new mongoose.Schema({
 
 // Unique index on userA and userB
 matchSchema.index({ userA: 1, userB: 1 }, { unique: true });
+matchSchema.index({ userB: 1 });
+matchSchema.index({ conversationId: 1 }, { unique: true });
 
 // Pre-save middleware to guarantee userA is lexicographically smaller than userB
 matchSchema.pre('save', function (next) {

@@ -185,8 +185,8 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
   try {
     const { razorpay_subscription_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    if (!razorpay_subscription_id) {
-      return res.status(400).json({ error: 'Missing required parameter: razorpay_subscription_id' });
+    if (!razorpay_subscription_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ error: 'Missing required parameters: razorpay_subscription_id, razorpay_payment_id, and razorpay_signature are required' });
     }
 
     // Find payment subscription record
@@ -203,38 +203,18 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
       return res.status(429).json({ error: 'Too many verification attempts. Please wait 15 minutes.' });
     }
 
-    const { instance, key_id, key_secret } = getRazorpayInstance();
-    const isProduction = process.env.NODE_ENV === 'production';
-
-    // Block simulated subscription IDs entirely in production
-    if (isProduction && razorpay_subscription_id.startsWith('sub_sim_')) {
-      return res.status(400).json({ error: 'Simulated subscriptions are not valid in production' });
-    }
+    const { key_secret } = getRazorpayInstance();
 
     // HMAC Signature Validation for Razorpay Subscriptions
+    const body = razorpay_payment_id + '|' + razorpay_subscription_id;
+    const expectedSignature = crypto
+      .createHmac('sha256', key_secret)
+      .update(body.toString())
+      .digest('hex');
+
     let isValid = false;
-    if (!isProduction && razorpay_subscription_id.startsWith('sub_sim_')) {
-      // Allow simulated subscriptions only in development/test mode
-      isValid = true;
-    } else if (razorpay_payment_id && razorpay_signature) {
-      // Primary path: HMAC-SHA256 signature verification
-      const body = razorpay_payment_id + '|' + razorpay_subscription_id;
-      const expectedSignature = crypto
-        .createHmac('sha256', key_secret)
-        .update(body.toString())
-        .digest('hex');
-      isValid = (expectedSignature === razorpay_signature);
-    } else if (!key_id.startsWith('rzp_test_your_') && !key_secret.startsWith('your_')) {
-      // Fallback: Direct API verification from Razorpay servers
-      try {
-        const sub = await instance.subscriptions.fetch(razorpay_subscription_id);
-        if (sub && (sub.status === 'active' || sub.status === 'authenticated' || sub.paid_count > 0)) {
-          isValid = true;
-        }
-      } catch (subErr) {
-        console.error('[RAZORPAY API FETCH ERROR]:', subErr.message);
-        isValid = false;
-      }
+    if (typeof razorpay_signature === 'string' && razorpay_signature.length === expectedSignature.length) {
+      isValid = crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(razorpay_signature));
     }
 
     if (!isValid) {
@@ -337,16 +317,18 @@ router.post('/cancel-subscription', authRequired, async (req, res) => {
 });
 
 // POST /api/payments/webhook (Razorpay Automated Webhook Handler for Autopay Renewals)
-router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+router.post('/webhook', async (req, res) => {
   try {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || 'your_razorpay_webhook_secret';
     const signature = req.headers['x-razorpay-signature'];
 
+    const rawBody = req.rawBody || (Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body)));
+    
     let eventPayload;
-    if (Buffer.isBuffer(req.body)) {
-      eventPayload = JSON.parse(req.body.toString());
-    } else {
+    if (typeof req.body === 'object' && req.body !== null && !Buffer.isBuffer(req.body)) {
       eventPayload = req.body;
+    } else {
+      eventPayload = JSON.parse(rawBody.toString());
     }
 
     // ✅ Unconditional signature verification — reject if secret not configured
@@ -361,10 +343,15 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)
-      .update(Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(eventPayload)))
+      .update(rawBody)
       .digest('hex');
 
-    if (expectedSignature !== signature) {
+    let isValid = false;
+    if (typeof signature === 'string' && signature.length === expectedSignature.length) {
+      isValid = crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature));
+    }
+
+    if (!isValid) {
       return res.status(400).json({ error: 'Invalid webhook signature' });
     }
 

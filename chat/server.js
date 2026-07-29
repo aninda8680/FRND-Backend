@@ -14,8 +14,11 @@ const AccountFlag = require('./models/AccountFlag');
 require('dotenv').config();
 
 // Fail fast on missing critical secrets in production
-if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is required in production');
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required in production');
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+    throw new Error('UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required in production');
+  }
 }
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -59,7 +62,9 @@ async function flushMessages() {
     await Message.bulkWrite(ops);
     console.log(`[CHAT] Batch wrote ${batch.length} messages to DB.`);
   } catch (err) {
-    console.error('[CHAT] Failed to batch write messages:', err);
+    console.error('[CHAT] Failed to batch write messages. Re-queueing batch...', err);
+    // Put batch back into messageQueue to avoid silent message loss
+    messageQueue = [...batch, ...messageQueue];
   }
 }
 
@@ -80,9 +85,9 @@ io.use((socket, next) => {
     let token;
 
     if (cookieHeader) {
-      const tokenCookie = cookieHeader.split('; ').find(row => row.startsWith('token='));
+      const tokenCookie = cookieHeader.split(';').map(c => c.trim()).find(row => row.startsWith('token='));
       if (tokenCookie) {
-        token = tokenCookie.split('=')[1];
+        token = tokenCookie.substring(6);
       }
     }
 
@@ -184,8 +189,10 @@ io.on('connection', async (socket) => {
   });
 
   // Handle client joining a room
-  socket.on('join_conversation', async ({ conversationId }) => {
+  socket.on('join_conversation', async (data) => {
     try {
+      if (!data || typeof data !== 'object') return;
+      const { conversationId } = data;
       if (!conversationId || typeof conversationId !== 'string') return;
 
       // Security check: ensure user is part of the match conversation
@@ -206,8 +213,12 @@ io.on('connection', async (socket) => {
   });
 
   // Handle message sending (relays ciphertext and IV only — E2EE)
-  socket.on('send_message', async ({ conversationId, ciphertext, iv }) => {
+  socket.on('send_message', async (data) => {
     try {
+      if (!data || typeof data !== 'object') {
+        return socket.emit('chat_error', { error: 'Invalid message payload' });
+      }
+      const { conversationId, ciphertext, iv } = data;
       if (!conversationId || !ciphertext || !iv) {
         return socket.emit('chat_error', { error: 'Invalid message payload' });
       }
@@ -383,6 +394,15 @@ async function startServer() {
 
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('[CHAT SYS FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+    });
+
+    process.on('uncaughtException', (err) => {
+      console.error('[CHAT SYS FATAL] Uncaught Exception thrown:', err);
+      process.exit(1);
+    });
   } catch (err) {
     console.error('[CHAT] Chat service failed to start:', err.message);
     process.exit(1);

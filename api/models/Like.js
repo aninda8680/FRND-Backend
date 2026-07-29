@@ -26,4 +26,7 @@ const likeSchema = new mongoose.Schema({
 // Unique compound index on fromUserId and toUserId
 likeSchema.index({ fromUserId: 1, toUserId: 1 }, { unique: true });
 
+// Compound index on toUserId and createdAt for incoming likes queries
+likeSchema.index({ toUserId: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Like', likeSchema);

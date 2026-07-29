@@ -218,14 +218,16 @@ async function sendEmail({ to, subject, html, text, headers = {} }) {
         continue;
       }
 
-      // Success! Update in-memory count only — no DB write on every email
+      // Success! Update in-memory count and persist asynchronously
       account.status = 'active';
       account.dailySentCount = (account.dailySentCount || 0) + 1;
       account.lastUsedAt = new Date();
       account.lastError = '';
       config.activeKeyIndex = currentIndex;
-      // Keep in-memory cache alive with updated count, refresh timestamp to extend TTL
       _configCacheAt = Date.now();
+
+      // Background persist to keep MongoDB synced without blocking
+      config.save().catch(err => console.warn('[EMAIL CONFIG PERSIST WARN]:', err.message));
 
       const resendId = data && data.id ? data.id : 'N/A';
       console.log(`[EMAIL SUCCESS] Sent email to ${recipientList.join(', ')} via Account #${account.index + 1} (${account.fromEmail}) | Resend ID: ${resendId}`);
