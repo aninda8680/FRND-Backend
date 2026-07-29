@@ -18,8 +18,18 @@ function formatFromAddress(email) {
   return `FRND <${cleaned}>`;
 }
 
+// Module-level in-memory cache for EmailConfig — refreshed from DB every 30 seconds.
+// Eliminates the MongoDB findOne() + save() on every single email send in steady state.
+let _configCache = null;
+let _configCacheAt = 0;
+const CONFIG_CACHE_TTL_MS = 30 * 1000; // 30 seconds
+
 // Get or initialize EmailConfig from ENV variables or DB
 async function getOrInitEmailConfig() {
+  // Serve from in-memory cache if fresh
+  if (_configCache && Date.now() - _configCacheAt < CONFIG_CACHE_TTL_MS) {
+    return _configCache;
+  }
   let config = await EmailConfig.findOne({ key: 'default_email_config' });
 
   // Parse environment variables if not initialized or empty
@@ -105,6 +115,9 @@ async function getOrInitEmailConfig() {
     }
   }
 
+  // Store in module-level cache
+  _configCache = config;
+  _configCacheAt = Date.now();
   return config;
 }
 
@@ -195,6 +208,8 @@ async function sendEmail({ to, subject, html, text, headers = {} }) {
 
         // Advance active key index to next available key
         config.activeKeyIndex = (currentIndex + 1) % config.accounts.length;
+        // Bust in-memory cache and persist to DB (status change is important to persist)
+        _configCache = null;
         await config.save();
 
         // Instant retry with next available key in loop
@@ -203,14 +218,14 @@ async function sendEmail({ to, subject, html, text, headers = {} }) {
         continue;
       }
 
-      // Success! Update metrics
+      // Success! Update in-memory count only — no DB write on every email
       account.status = 'active';
       account.dailySentCount = (account.dailySentCount || 0) + 1;
       account.lastUsedAt = new Date();
       account.lastError = '';
-      config.activeKeyIndex = currentIndex; // Keep this working account active
-      config.updatedAt = new Date();
-      await config.save();
+      config.activeKeyIndex = currentIndex;
+      // Keep in-memory cache alive with updated count, refresh timestamp to extend TTL
+      _configCacheAt = Date.now();
 
       const resendId = data && data.id ? data.id : 'N/A';
       console.log(`[EMAIL SUCCESS] Sent email to ${recipientList.join(', ')} via Account #${account.index + 1} (${account.fromEmail}) | Resend ID: ${resendId}`);

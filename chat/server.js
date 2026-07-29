@@ -155,13 +155,21 @@ io.on('connection', async (socket) => {
         });
       }
 
-      const likers = await Promise.all(incomingLikes.map(async (l) => {
-        const likerUser = await User.findById(l.fromUserId).select('name age height pictures bio school course gender identityStatus badges tier');
-        if (!likerUser || likerUser.banned) return null;
-        return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile: likerUser };
-      }));
+      // Batch-fetch all liker profiles in ONE query — eliminates N+1
+      const likerIds = incomingLikes.map(l => l.fromUserId);
+      const likerUsers = await User.find({ _id: { $in: likerIds }, banned: false })
+        .select('name age height pictures bio school course gender identityStatus badges tier')
+        .lean();
+      const likerMap = Object.fromEntries(likerUsers.map(u => [u._id.toString(), u]));
 
-      const validLikers = likers.filter(Boolean);
+      const validLikers = incomingLikes
+        .map(l => {
+          const profile = likerMap[l.fromUserId.toString()];
+          if (!profile) return null;
+          return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile };
+        })
+        .filter(Boolean);
+
       socket.emit('received_likes_update', {
         totalLikesCount: validLikers.length,
         hasAccess: true,
@@ -267,8 +275,12 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // Handle client heartbeat
+  // Heartbeat: rate-limited to 1 Redis write per 25 seconds per socket
+  let lastHeartbeat = 0;
   socket.on('heartbeat', async () => {
+    const now = Date.now();
+    if (now - lastHeartbeat < 25000) return; // throttle
+    lastHeartbeat = now;
     await redis.set(presenceKey, '1', { EX: 120 });
   });
 
@@ -281,45 +293,43 @@ io.on('connection', async (socket) => {
 
 app.use(express.json());
 
-// Internal Notification Bridge (Receives like/match events from REST API and relays via WebSockets)
+// Internal Notification Bridge — secured with shared secret header
+// Receives like/match events from REST API and relays via WebSockets
+const INTERNAL_NOTIFY_SECRET = process.env.INTERNAL_NOTIFY_SECRET;
 app.post('/internal/notify', async (req, res) => {
   try {
+    // Security: reject calls without the correct shared internal secret
+    if (INTERNAL_NOTIFY_SECRET && req.headers['x-internal-secret'] !== INTERNAL_NOTIFY_SECRET) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const { event, toUserId, fromUserId, userA, userB, conversationId, type, timestamp } = req.body;
     const now = timestamp || new Date();
 
     if (event === 'new_like' && toUserId) {
-      // Broadcast real-time like notification to the targeted user's socket room
       io.to(`user_${toUserId}`).emit('new_like', {
         event: 'new_like',
         toUserId,
         fromUserId,
         type: type || 'like',
-        message: 'Someone liked your profile! 💖',
+        message: 'Someone liked your profile!',
         timestamp: now
       });
       console.log(`[SOCKET NOTIFY] Emitted new_like to user_${toUserId}`);
     } else if (event === 'new_match' && userA && userB) {
-      // Broadcast real-time match notification to both users' socket rooms
-      io.to(`user_${userA}`).emit('new_match', {
-        event: 'new_match',
-        conversationId,
-        partnerId: userA, // for userB, partner is userA; handled cleanly below
-        partnerId: userB,
-        message: "It's a Match! 🎉",
-        timestamp: now
-      });
+      // Each user gets exactly ONE new_match event with the correct partnerId
       io.to(`user_${userA}`).emit('new_match', {
         event: 'new_match',
         conversationId,
         partnerId: userB,
-        message: "It's a Match! 🎉",
+        message: "It's a Match!",
         timestamp: now
       });
       io.to(`user_${userB}`).emit('new_match', {
         event: 'new_match',
         conversationId,
         partnerId: userA,
-        message: "It's a Match! 🎉",
+        message: "It's a Match!",
         timestamp: now
       });
       console.log(`[SOCKET NOTIFY] Emitted new_match to user_${userA} & user_${userB}`);

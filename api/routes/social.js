@@ -246,6 +246,8 @@ router.put('/users/me', authRequired, async (req, res) => {
 // ------------------------------------------------------------------
 // 2. DISCOVERY FEED
 // ------------------------------------------------------------------
+const DISCOVER_CACHE_TTL = 300; // 5 minutes — balances freshness vs DB load
+
 // GET /api/discover
 router.get('/discover', authRequired, async (req, res) => {
   try {
@@ -259,61 +261,76 @@ router.get('/discover', authRequired, async (req, res) => {
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
 
-    // A-C: Fetch blocks, likes/dislikes, matches in parallel — 1 round-trip instead of 4
-    const [blocks, sentLikes, sentDislikes, matches] = await Promise.all([
-      Block.find({ $or: [{ blockerId: userId }, { blockedId: userId }] }).lean(),
-      Like.find({ fromUserId: userId }).select('toUserId').lean(),
-      Dislike.find({ fromUserId: userId }).select('toUserId').lean(),
-      Match.find({ $or: [{ userA: userId }, { userB: userId }] }).lean()
-    ]);
+    // --- Cache read: try to serve ranked candidates from Redis before DB ---
+    const cacheKey = `discover:${req.user.id}`;
+    let scoredProfiles = null;
 
-    const blockedUserIds = blocks.map(b => String(b.blockerId) === String(userId) ? b.blockedId : b.blockerId);
-    const likedUserIds = sentLikes.map(l => l.toUserId);
-    const dislikedUserIds = sentDislikes.map(d => d.toUserId);
-    const matchedUserIds = matches.map(m => String(m.userA) === String(userId) ? m.userB : m.userA);
-
-    // D. Build complete exclusion list (Self, Blocked, Liked, Disliked, Matched)
-    const excludedIds = [userId, ...blockedUserIds, ...likedUserIds, ...dislikedUserIds, ...matchedUserIds];
-
-    // E. Discovery query
-    const query = {
-      _id: { $nin: excludedIds },
-      banned: false
-    };
-
-    // Basic gender preferences for dating mode
-    if (user.lookingFor === 'dating') {
-      if (user.gender === 'male') query.gender = 'female';
-      else if (user.gender === 'female') query.gender = 'male';
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      try {
+        scoredProfiles = JSON.parse(cached);
+      } catch (_) {
+        scoredProfiles = null; // corrupt cache — fall through to DB
+      }
     }
 
-    // .lean() = plain JS objects, ~70% less RAM than Mongoose docs
-    // .limit(200) = safety cap: with 700 users we never need to load all into RAM
-    //               boosting algo works perfectly within a 200-candidate pool
-    const candidateProfiles = await User.find(query)
-      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt religion beliefs')
-      .limit(200)
-      .lean();
+    if (!scoredProfiles) {
+      // A-C: Fetch blocks, likes/dislikes, matches in parallel — 1 round-trip instead of 4
+      const [blocks, sentLikes, sentDislikes, matches] = await Promise.all([
+        Block.find({ $or: [{ blockerId: userId }, { blockedId: userId }] }).lean(),
+        Like.find({ fromUserId: userId }).select('toUserId').lean(),
+        Dislike.find({ fromUserId: userId }).select('toUserId').lean(),
+        Match.find({ $or: [{ userA: userId }, { userB: userId }] }).lean()
+      ]);
 
-    // F. Probability-based Feed Algorithm with 6x/3x/1x Profile Boost
-    const now = new Date();
-    const scoredProfiles = candidateProfiles.map(p => {
-      const isSubActive = p.tier && p.tier !== 'free' && (!p.subscriptionExpiresAt || new Date(p.subscriptionExpiresAt) > now);
-      const activeTier = isSubActive ? p.tier : 'free';
+      const blockedUserIds = blocks.map(b => String(b.blockerId) === String(userId) ? b.blockedId : b.blockerId);
+      const likedUserIds = sentLikes.map(l => l.toUserId);
+      const dislikedUserIds = sentDislikes.map(d => d.toUserId);
+      const matchedUserIds = matches.map(m => String(m.userA) === String(userId) ? m.userB : m.userA);
 
-      // Boost multiplier: Gold = 6x, Silver = 3x, Free = 1x
-      const boostMultiplier = activeTier === 'gold' ? 6 : (activeTier === 'silver' ? 3 : 1);
+      // D. Build complete exclusion list (Self, Blocked, Liked, Disliked, Matched)
+      const excludedIds = [userId, ...blockedUserIds, ...likedUserIds, ...dislikedUserIds, ...matchedUserIds];
 
-      // Weighted ranking score
-      const weightedScore = (boostMultiplier * 1000) + Math.floor(Math.random() * 500);
+      // E. Discovery query
+      const query = {
+        _id: { $nin: excludedIds },
+        banned: false
+      };
 
-      const doc = { ...p };
-      delete doc.subscriptionExpiresAt;
-      return { profile: doc, score: weightedScore };
-    });
+      // Basic gender preferences for dating mode
+      if (user.lookingFor === 'dating') {
+        if (user.gender === 'male') query.gender = 'female';
+        else if (user.gender === 'female') query.gender = 'male';
+      }
 
-    // Sort by weighted rank score descending
-    scoredProfiles.sort((a, b) => b.score - a.score);
+      // .lean() = plain JS objects, ~70% less RAM than Mongoose docs
+      // .limit(200) = safety cap: with 700 users we never need to load all into RAM
+      const candidateProfiles = await User.find(query)
+        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt religion beliefs')
+        .limit(200)
+        .lean();
+
+      // F. Probability-based Feed Algorithm with 6x/3x/1x Profile Boost
+      const now = new Date();
+      scoredProfiles = candidateProfiles.map(p => {
+        const isSubActive = p.tier && p.tier !== 'free' && (!p.subscriptionExpiresAt || new Date(p.subscriptionExpiresAt) > now);
+        const activeTier = isSubActive ? p.tier : 'free';
+
+        // Boost multiplier: Gold = 6x, Silver = 3x, Free = 1x
+        const boostMultiplier = activeTier === 'gold' ? 6 : (activeTier === 'silver' ? 3 : 1);
+        const weightedScore = (boostMultiplier * 1000) + Math.floor(Math.random() * 500);
+
+        const doc = { ...p };
+        delete doc.subscriptionExpiresAt;
+        return { profile: doc, score: weightedScore };
+      });
+
+      // Sort by weighted rank score descending
+      scoredProfiles.sort((a, b) => b.score - a.score);
+
+      // --- Cache write: store sorted list for 5 minutes ---
+      await redis.set(cacheKey, JSON.stringify(scoredProfiles), { EX: DISCOVER_CACHE_TTL });
+    }
 
     // Apply pagination slice
     const paginatedProfiles = scoredProfiles.slice(skip, skip + limit).map(item => item.profile);
@@ -324,6 +341,8 @@ router.get('/discover', authRequired, async (req, res) => {
     res.status(500).json({ error: 'Server error during discovery fetch' });
   }
 });
+
+
 
 
 // ------------------------------------------------------------------
@@ -338,13 +357,15 @@ async function handleLikeAction(req, res, actionType) {
       return res.status(400).json({ error: 'You cannot like yourself' });
     }
 
-    // A. Check target exists and is not banned
-    const target = await User.findById(toUserId);
+    // A. Fetch both users in parallel — saves one DB round-trip on the hottest path
+    const [target, user] = await Promise.all([
+      User.findById(toUserId),
+      User.findById(fromUserId)
+    ]);
+
     if (!target || target.banned) {
       return res.status(404).json({ error: 'Target user not found or is banned' });
     }
-
-    const user = await User.findById(fromUserId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -421,32 +442,63 @@ async function handleLikeAction(req, res, actionType) {
       await User.findByIdAndUpdate(fromUserId, { $inc: { openFlagCount: 1 } });
     }
 
-    // E. Save Like document (upsert — one like per pair)
+    // E. Check for mutual like BEFORE upserting own like
+    // This is critical — we need to know if the other user already liked us
+    // BEFORE we write our like, so that a concurrent duplicate upsert can't
+    // swallow the match-formed state in the outer catch block.
+    const mutualLike = await Like.findOne({ fromUserId: toUserId, toUserId: fromUserId }).lean();
+
+    // F. Save/upsert own Like document (one like per pair)
     await Like.findOneAndUpdate(
       { fromUserId, toUserId },
       { type: actionType, createdAt: new Date() },
-      { upsert: true }
+      { upsert: true, setDefaultsOnInsert: true }
     );
 
-    // F. Mutual Match Detection
-    const mutualLike = await Like.findOne({ fromUserId: toUserId, toUserId: fromUserId });
+    // G. Mutual Match Formation
     let matchFormed = false;
     let conversationId = null;
 
     if (mutualLike) {
       matchFormed = true;
+      // conversationId is deterministic — always the same regardless of who liked first
       conversationId = `conv_${[fromUserId.toString(), toUserId.toString()].sort().join('_')}`;
 
-      // Create match document (pre-save middleware sorts userA/userB)
-      try {
-        const match = new Match({ userA: fromUserId, userB: toUserId, conversationId });
-        await match.save();
-      } catch (e) {
-        if (e.code !== 11000) throw e; // ignore duplicate match
+      // Upsert match (idempotent — safe to call even if match already exists)
+      const existingOrNewMatch = await Match.findOneAndUpdate(
+        {
+          $or: [
+            { userA: fromUserId, userB: toUserId },
+            { userA: toUserId, userB: fromUserId }
+          ]
+        },
+        {
+          $setOnInsert: {
+            userA: fromUserId.toString() < toUserId.toString() ? fromUserId : toUserId,
+            userB: fromUserId.toString() < toUserId.toString() ? toUserId : fromUserId,
+            conversationId,
+            matchedAt: new Date()
+          }
+        },
+        { upsert: true, new: true }
+      );
+
+      // Use the stored conversationId in case match already existed with a different one
+      if (existingOrNewMatch && existingOrNewMatch.conversationId) {
+        conversationId = existingOrNewMatch.conversationId;
       }
+
+      // Invalidate both users' discovery caches — they should no longer see each other
+      await Promise.all([
+        redis.del(`discover:${fromUserId.toString()}`),
+        redis.del(`discover:${toUserId.toString()}`)
+      ]);
+
+      console.log(`[MATCH] Mutual match formed: ${fromUserId} <-> ${toUserId} | conversation: ${conversationId}`);
     }
 
-    // Broadcast real-time WebSocket notification events via Redis & Chat Service
+    // H. Broadcast real-time WebSocket notification events via Chat Service
+
     try {
       const chatUrl = process.env.CHAT_SERVICE_URL || 'http://localhost:5001';
       const payload = matchFormed
@@ -464,7 +516,8 @@ async function handleLikeAction(req, res, actionType) {
         timeout: 1500,
         headers: {
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(dataString)
+          'Content-Length': Buffer.byteLength(dataString),
+          'x-internal-secret': process.env.INTERNAL_NOTIFY_SECRET || ''
         }
       });
       notifReq.setTimeout(1500, () => {
@@ -481,10 +534,13 @@ async function handleLikeAction(req, res, actionType) {
 
     res.json({ success: true, matchFormed, conversationId });
   } catch (err) {
+    // E11000 here means user submitted a duplicate like request (re-liked same profile).
+    // The mutual match check was already done BEFORE the Like upsert, so this can't
+    // suppress a match that should have formed — it's safe to return 'Already liked'.
     if (err.code === 11000) {
       return res.json({ success: true, matchFormed: false, note: 'Already liked' });
     }
-    console.error(err);
+    console.error('[LIKE ACTION ERROR]:', err);
     res.status(500).json({ error: 'Server error during like action' });
   }
 }
@@ -567,21 +623,20 @@ async function getReceivedLikes(req, res) {
       });
     }
 
-    // If Silver or Gold subscription active, populate full profiles of users who liked them
-    const likers = await Promise.all(incomingLikes.map(async (l) => {
-      const likerUser = await User.findById(l.fromUserId)
-        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier religion beliefs');
-      if (!likerUser || likerUser.banned) return null;
+    // If Silver or Gold subscription active, batch-fetch all liker profiles in ONE query
+    const likerIds = incomingLikes.map(l => l.fromUserId);
+    const likerUsers = await User.find({ _id: { $in: likerIds }, banned: false })
+      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier religion beliefs')
+      .lean();
+    const likerMap = Object.fromEntries(likerUsers.map(u => [u._id.toString(), u]));
 
-      return {
-        likeId: l._id,
-        type: l.type || 'like',
-        likedAt: l.createdAt,
-        profile: likerUser
-      };
-    }));
-
-    const validLikers = likers.filter(Boolean);
+    const validLikers = incomingLikes
+      .map(l => {
+        const profile = likerMap[l.fromUserId.toString()];
+        if (!profile) return null;
+        return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile };
+      })
+      .filter(Boolean);
 
     res.json({
       totalLikesCount: validLikers.length,
@@ -633,21 +688,20 @@ async function getGivenLikes(req, res) {
       Like.countDocuments(filter)
     ]);
 
-    // 3. Populate target user profiles
-    const likes = await Promise.all(sentLikes.map(async (l) => {
-      const targetUser = await User.findById(l.toUserId)
-        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier religion beliefs');
-      if (!targetUser || targetUser.banned) return null;
+    // 3. Batch-fetch all target profiles in ONE query instead of N queries
+    const targetIds = sentLikes.map(l => l.toUserId);
+    const targetUsers = await User.find({ _id: { $in: targetIds }, banned: false })
+      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier religion beliefs')
+      .lean();
+    const targetMap = Object.fromEntries(targetUsers.map(u => [u._id.toString(), u]));
 
-      return {
-        likeId: l._id,
-        type: l.type || 'like',
-        likedAt: l.createdAt,
-        profile: targetUser
-      };
-    }));
-
-    const validLikes = likes.filter(Boolean);
+    const validLikes = sentLikes
+      .map(l => {
+        const profile = targetMap[l.toUserId.toString()];
+        if (!profile) return null;
+        return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile };
+      })
+      .filter(Boolean);
 
     res.json({
       totalCount: total,
@@ -682,33 +736,46 @@ router.get('/matches', authRequired, async (req, res) => {
 
     const matches = await Match.find({
       $or: [{ userA: userId }, { userB: userId }]
-    }).sort({ matchedAt: -1 });
+    }).sort({ matchedAt: -1 }).lean();
 
-    const populatedMatches = await Promise.all(matches.map(async (m) => {
-      const partnerId = m.userA.equals(userId) ? m.userB : m.userA;
+    // Filter out blocked partners early
+    const visibleMatches = matches.filter(m => {
+      const partnerId = m.userA.toString() === req.user.id ? m.userB : m.userA;
+      return !blockedSet.has(partnerId.toString());
+    });
 
-      // M-5 fix: skip matches where a post-match block exists
-      if (blockedSet.has(partnerId.toString())) return null;
+    // Batch-fetch all partner profiles in ONE query
+    const partnerIds = visibleMatches.map(m =>
+      m.userA.toString() === req.user.id ? m.userB : m.userA
+    );
+    const partnerUsers = await User.find({ _id: { $in: partnerIds } })
+      .select('name age school course gender pictures bio badges identityStatus')
+      .lean();
+    const partnerMap = Object.fromEntries(partnerUsers.map(u => [u._id.toString(), u]));
 
-      const partner = await User.findById(partnerId)
-        .select('name age school course gender pictures bio badges identityStatus');
-      if (!partner) return null;
+    // Batch-fetch all presence keys in parallel (one Upstash HTTP call each, but concurrent)
+    const presenceResults = await Promise.all(
+      partnerIds.map(id => redis.get(`presence:${id.toString()}`))
+    );
+    const presenceMap = Object.fromEntries(
+      partnerIds.map((id, i) => [id.toString(), !!presenceResults[i]])
+    );
 
-      // Fetch presence online status from Redis
-      const isOnline = await redis.get(`presence:${partnerId.toString()}`);
+    const populatedMatches = visibleMatches
+      .map(m => {
+        const partnerId = m.userA.toString() === req.user.id ? m.userB : m.userA;
+        const partner = partnerMap[partnerId.toString()];
+        if (!partner) return null;
+        return {
+          id: m._id,
+          matchedAt: m.matchedAt,
+          conversationId: m.conversationId,
+          partner: { ...partner, isOnline: presenceMap[partnerId.toString()] || false }
+        };
+      })
+      .filter(Boolean);
 
-      return {
-        id: m._id,
-        matchedAt: m.matchedAt,
-        conversationId: m.conversationId,
-        partner: {
-          ...partner.toObject(),
-          isOnline: !!isOnline
-        }
-      };
-    }));
-
-    res.json({ matches: populatedMatches.filter(Boolean) });
+    res.json({ matches: populatedMatches });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error fetching matches' });
