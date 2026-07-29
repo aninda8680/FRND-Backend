@@ -177,7 +177,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
     const activeSubscriptions = payStats.activeSubscriptionsCount || 0;
     const totalTransactionsCount = payStats.totalTransactionsCount || 0;
 
-    res.json({
+    const statsPayload = {
       overview: {
         totalUsers,
         premiumUsers: silverUsers + goldUsers,
