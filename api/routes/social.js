@@ -928,16 +928,19 @@ router.post('/report', authRequired, async (req, res) => {
 });
 
 // ------------------------------------------------------------------
-// 7. ANONYMOUS POSTS
+// 7. ANONYMOUS POSTS & FEED (with Tier Limits, Anonymity Toggle, Upvotes/Downvotes)
 // ------------------------------------------------------------------
 const POST_SPAM_THRESHOLD = 5;
-// ------------------------------------------------------------------
-// 7. ANONYMOUS POSTS & MESSAGES
-// ------------------------------------------------------------------
-// Tier Posting Limits per 24 hours: Free = 1, Silver = 2, Gold = 3
-const TIER_ANONYMOUS_POST_LIMITS = { free: 1, silver: 2, gold: 3 };
+const POST_SPAM_WINDOW_SECONDS = 60;
+const TIER_ANONYMOUS_POST_LIMITS = { free: 1, silver: 3, gold: 6 };
+const TIER_POST_WORD_LIMITS = { free: 250, silver: 400, gold: 900 };
 
-// POST /api/posts (Publish anonymous message with tier quota check)
+function countWords(str) {
+  if (!str || typeof str !== 'string') return 0;
+  return str.trim().split(/\s+/).filter(Boolean).length;
+}
+
+// POST /api/posts (Publish message with tier quota, word limit check, and anonymity toggle)
 router.post('/posts', authRequired, async (req, res) => {
   const lockKey = `post_lock:${req.user.id}`;
   let lockAcquired = false;
@@ -954,11 +957,12 @@ router.post('/posts', authRequired, async (req, res) => {
       return res.status(403).json({ error: 'Account suspended or not found' });
     }
 
-    // 1. Calculate active tier (Free = 1, Silver = 2, Gold = 3)
+    // 1. Calculate active tier (Free = 1 post/24h, Silver = 3 posts/24h, Gold = 6 posts/24h)
     const now = new Date();
     const isSubActive = user.tier && user.tier !== 'free' && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > now);
     const activeTier = isSubActive ? user.tier : 'free';
     const dailyLimit = TIER_ANONYMOUS_POST_LIMITS[activeTier] || 1;
+    const wordLimit = TIER_POST_WORD_LIMITS[activeTier] || 250;
 
     // 2. Check posts published in rolling 24-hour window
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -976,19 +980,33 @@ router.post('/posts', authRequired, async (req, res) => {
       });
     }
 
-    // 3. Input validation
-    const { content } = req.body;
+    // 3. Input validation & Tier Word Limit check
+    const { content, isAnonymous } = req.body;
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
       return res.status(400).json({ error: 'Post content is required' });
     }
-    if (content.trim().length > 500) {
-      return res.status(400).json({ error: 'Post content too long (max 500 chars)' });
+
+    const words = countWords(content);
+    if (words > wordLimit) {
+      return res.status(400).json({
+        error: `Post exceeds the ${wordLimit}-word limit for your ${activeTier.toUpperCase()} tier (your post has ${words} words).`,
+        tier: activeTier,
+        wordLimit,
+        wordCount: words
+      });
     }
 
-    // 4. Save anonymous post
+    const postIsAnonymous = isAnonymous === false || isAnonymous === 'false' ? false : true;
+
+    // 4. Save post
     const post = new AnonymousPost({
       userId,
       content: content.trim(),
+      isAnonymous: postIsAnonymous,
+      upvotes: [],
+      downvotes: [],
+      upvotesCount: 0,
+      downvotesCount: 0,
       createdAt: new Date()
     });
     await post.save();
@@ -1012,14 +1030,26 @@ router.post('/posts', authRequired, async (req, res) => {
     }
 
     res.status(201).json({
-      message: 'Anonymous post published successfully',
+      message: 'Post published successfully',
       post: {
         id: post._id,
         content: post.content,
+        isAnonymous: post.isAnonymous,
+        author: post.isAnonymous ? null : {
+          id: user._id,
+          name: user.name,
+          username: user.username,
+          pictures: user.pictures,
+          tier: user.tier
+        },
+        upvotesCount: 0,
+        downvotesCount: 0,
         createdAt: post.createdAt
       },
       tier: activeTier,
-      remainingPosts: dailyLimit - (recentPostsCount + 1)
+      remainingPosts: dailyLimit - (recentPostsCount + 1),
+      wordCount: words,
+      wordLimit
     });
   } catch (err) {
     console.error(err);
@@ -1031,20 +1061,29 @@ router.post('/posts', authRequired, async (req, res) => {
   }
 });
 
-// GET /api/posts (Fetch anonymous feed — accessible to all authenticated users, auto-purges after 24h)
+// GET /api/posts (Fetch anonymous feed with upvote/downvote counts, user vote status, and optional author identity)
 router.get('/posts', authRequired, async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const skip = (page - 1) * limit;
 
-    // Filter to only return posts created within the last 24 hours
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const filter = { createdAt: { $gte: twentyFourHoursAgo } };
+    const currentUserId = new mongoose.Types.ObjectId(req.user.id);
 
     const [posts, total] = await Promise.all([
-      AnonymousPost.find(filter)
-        .select('_id content createdAt')
+      AnonymousPost.find(filter, {
+        content: 1,
+        isAnonymous: 1,
+        userId: 1,
+        upvotesCount: 1,
+        downvotesCount: 1,
+        createdAt: 1,
+        upvotes: { $elemMatch: { $eq: currentUserId } },
+        downvotes: { $elemMatch: { $eq: currentUserId } }
+      })
+        .populate('userId', 'name username pictures gender school course identityStatus badges tier')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -1052,10 +1091,192 @@ router.get('/posts', authRequired, async (req, res) => {
       AnonymousPost.countDocuments(filter)
     ]);
 
-    res.json({ posts, page, limit, total });
+    const formattedPosts = posts.map(p => {
+      const isAnon = p.isAnonymous !== false;
+      const hasUpvoted = Array.isArray(p.upvotes) && p.upvotes.length > 0;
+      const hasDownvoted = Array.isArray(p.downvotes) && p.downvotes.length > 0;
+
+      let userVote = null;
+      if (hasUpvoted) userVote = 'upvote';
+      else if (hasDownvoted) userVote = 'downvote';
+
+      const authorObj = (!isAnon && p.userId) ? {
+        id: p.userId._id,
+        name: p.userId.name,
+        username: p.userId.username,
+        pictures: p.userId.pictures,
+        gender: p.userId.gender,
+        school: p.userId.school,
+        course: p.userId.course,
+        identityStatus: p.userId.identityStatus,
+        badges: p.userId.badges,
+        tier: p.userId.tier
+      } : null;
+
+      return {
+        id: p._id,
+        content: p.content,
+        isAnonymous: isAnon,
+        author: authorObj,
+        upvotesCount: p.upvotesCount || 0,
+        downvotesCount: p.downvotesCount || 0,
+        userVote,
+        createdAt: p.createdAt
+      };
+    });
+
+    res.json({ posts: formattedPosts, page, limit, total });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error fetching posts' });
+  }
+});
+
+// POST /api/posts/:postId/upvote (Toggle / set upvote on a post atomically)
+router.post('/posts/:postId/upvote', authRequired, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.postId)) {
+      return res.status(400).json({ error: 'Invalid post ID format' });
+    }
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+    const postId = new mongoose.Types.ObjectId(req.params.postId);
+
+    // Case 1: Toggle off existing upvote
+    let post = await AnonymousPost.findOneAndUpdate(
+      { _id: postId, upvotes: userId },
+      { $pull: { upvotes: userId }, $inc: { upvotesCount: -1 } },
+      { new: true }
+    );
+
+    if (post) {
+      return res.json({
+        message: 'Removed vote',
+        userVote: null,
+        upvotesCount: Math.max(0, post.upvotesCount),
+        downvotesCount: Math.max(0, post.downvotesCount)
+      });
+    }
+
+    // Case 2: Switch downvote to upvote
+    post = await AnonymousPost.findOneAndUpdate(
+      { _id: postId, downvotes: userId },
+      { $pull: { downvotes: userId }, $addToSet: { upvotes: userId }, $inc: { upvotesCount: 1, downvotesCount: -1 } },
+      { new: true }
+    );
+
+    if (post) {
+      return res.json({
+        message: 'Upvoted post',
+        userVote: 'upvote',
+        upvotesCount: Math.max(0, post.upvotesCount),
+        downvotesCount: Math.max(0, post.downvotesCount)
+      });
+    }
+
+    // Case 3: Add new upvote
+    post = await AnonymousPost.findOneAndUpdate(
+      { _id: postId, upvotes: { $ne: userId }, downvotes: { $ne: userId } },
+      { $addToSet: { upvotes: userId }, $inc: { upvotesCount: 1 } },
+      { new: true }
+    );
+
+    if (post) {
+      return res.json({
+        message: 'Upvoted post',
+        userVote: 'upvote',
+        upvotesCount: Math.max(0, post.upvotesCount),
+        downvotesCount: Math.max(0, post.downvotesCount)
+      });
+    }
+
+    const existingPost = await AnonymousPost.findById(postId);
+    if (!existingPost) {
+      return res.status(404).json({ error: 'Post not found or has expired' });
+    }
+
+    res.json({
+      message: 'Upvoted post',
+      userVote: 'upvote',
+      upvotesCount: Math.max(0, existingPost.upvotesCount),
+      downvotesCount: Math.max(0, existingPost.downvotesCount)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error updating upvote' });
+  }
+});
+
+// POST /api/posts/:postId/downvote (Toggle / set downvote on a post atomically)
+router.post('/posts/:postId/downvote', authRequired, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.postId)) {
+      return res.status(400).json({ error: 'Invalid post ID format' });
+    }
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+    const postId = new mongoose.Types.ObjectId(req.params.postId);
+
+    // Case 1: Toggle off existing downvote
+    let post = await AnonymousPost.findOneAndUpdate(
+      { _id: postId, downvotes: userId },
+      { $pull: { downvotes: userId }, $inc: { downvotesCount: -1 } },
+      { new: true }
+    );
+
+    if (post) {
+      return res.json({
+        message: 'Removed vote',
+        userVote: null,
+        upvotesCount: Math.max(0, post.upvotesCount),
+        downvotesCount: Math.max(0, post.downvotesCount)
+      });
+    }
+
+    // Case 2: Switch upvote to downvote
+    post = await AnonymousPost.findOneAndUpdate(
+      { _id: postId, upvotes: userId },
+      { $pull: { upvotes: userId }, $addToSet: { downvotes: userId }, $inc: { upvotesCount: -1, downvotesCount: 1 } },
+      { new: true }
+    );
+
+    if (post) {
+      return res.json({
+        message: 'Downvoted post',
+        userVote: 'downvote',
+        upvotesCount: Math.max(0, post.upvotesCount),
+        downvotesCount: Math.max(0, post.downvotesCount)
+      });
+    }
+
+    // Case 3: Add new downvote
+    post = await AnonymousPost.findOneAndUpdate(
+      { _id: postId, upvotes: { $ne: userId }, downvotes: { $ne: userId } },
+      { $addToSet: { downvotes: userId }, $inc: { downvotesCount: 1 } },
+      { new: true }
+    );
+
+    if (post) {
+      return res.json({
+        message: 'Downvoted post',
+        userVote: 'downvote',
+        upvotesCount: Math.max(0, post.upvotesCount),
+        downvotesCount: Math.max(0, post.downvotesCount)
+      });
+    }
+
+    const existingPost = await AnonymousPost.findById(postId);
+    if (!existingPost) {
+      return res.status(404).json({ error: 'Post not found or has expired' });
+    }
+
+    res.json({
+      message: 'Downvoted post',
+      userVote: 'downvote',
+      upvotesCount: Math.max(0, existingPost.upvotesCount),
+      downvotesCount: Math.max(0, existingPost.downvotesCount)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error updating downvote' });
   }
 });
 

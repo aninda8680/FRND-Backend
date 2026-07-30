@@ -4,14 +4,32 @@ const anonymousPostSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
-    index: true
+    required: true
   },
   content: {
     type: String,
     required: true,
-    trim: true,
-    maxlength: 500
+    trim: true
+  },
+  isAnonymous: {
+    type: Boolean,
+    default: true
+  },
+  upvotes: {
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    default: []
+  },
+  downvotes: {
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    default: []
+  },
+  upvotesCount: {
+    type: Number,
+    default: 0
+  },
+  downvotesCount: {
+    type: Number,
+    default: 0
   },
   createdAt: {
     type: Date,
@@ -20,7 +38,7 @@ const anonymousPostSchema = new mongoose.Schema({
   }
 });
 
-// Index for query sorting and user post quota range scans
+// Indexes for query sorting and user post quota range scans
 anonymousPostSchema.index({ createdAt: -1 });
 anonymousPostSchema.index({ userId: 1, createdAt: -1 });
 

@@ -886,43 +886,58 @@ Report a user or an anonymous post. Requires authentication cookie.
 
 #### POST `/api/posts`
 
-Create an anonymous post/message. Requires authentication cookie or Bearer token. Posts automatically expire and are deleted after 24 hours.
+Create a public or anonymous post. Requires authentication cookie or Bearer token. Posts automatically expire and are purged from the database after 24 hours.
 
-**Tier Quota Limits (rolling 24-hour window):**
-- **Free Users**: **1 post / 24 hours**
-- **Silver Users**: **2 posts / 24 hours**
-- **Gold Users**: **3 posts / 24 hours**
+**Tier Daily Post Quotas (rolling 24-hour window):**
+- **Free Tier**: **1 post / 24 hours**
+- **Silver Tier**: **3 posts / 24 hours**
+- **Gold Tier**: **6 posts / 24 hours**
+
+**Tier Word Limits (per post):**
+- **Free Tier**: **250 words** max
+- **Silver Tier**: **400 words** max
+- **Gold Tier**: **900 words** max
 
 **Body:**
 ```json
-{ "content": "Hello campus! Anonymous message here." }
+{
+  "content": "A thoughtful confession or question for campus.",
+  "isAnonymous": true
+}
 ```
 
 | Field | Rules |
 |---|---|
-| `content` | Required, max 500 chars |
+| `content` | Required string. Must adhere to tier word limits (Free 250, Silver 400, Gold 900 words). |
+| `isAnonymous` | Optional boolean, default `true`. If `false`, reveals author profile card on the post feed. |
 
 **Response (201 Created):**
 ```json
 {
-  "message": "Anonymous post published successfully",
+  "message": "Post published successfully",
   "post": {
     "id": "651a2b3c4d5e6f7a8b9c0d4b",
-    "content": "Hello campus! Anonymous message here.",
-    "createdAt": "2026-07-29T18:30:00.000Z"
+    "content": "A thoughtful confession or question for campus.",
+    "isAnonymous": true,
+    "author": null,
+    "upvotesCount": 0,
+    "downvotesCount": 0,
+    "createdAt": "2026-07-30T18:30:00.000Z"
   },
   "tier": "free",
-  "remainingPosts": 0
+  "remainingPosts": 0,
+  "wordCount": 8,
+  "wordLimit": 250
 }
 ```
 
-> **Security & Anonymity Note:** Unauthenticated requests are rejected (401 Unauthorized). The author's user ID is strictly omitted from the public response to preserve total anonymity. Quota exhaustion returns `429 Too Many Requests`.
+> **Security & Anonymity Note:** Unauthenticated requests are rejected (`401 Unauthorized`). When `isAnonymous: true`, author details are strictly omitted from the public response to preserve total anonymity. Quota exhaustion returns `429 Too Many Requests`. Exceeding tier word limits returns `400 Bad Request`.
 
 ---
 
 #### GET `/api/posts`
 
-List all active anonymous posts from the past 24 hours. Accessible to all authenticated users.
+List all active posts from the past 24 hours with real-time upvote/downvote counts, caller vote status, and optional author identity. Accessible to all authenticated users.
 
 **Query params:** `?page=1&limit=20` (limit capped at 50)
 
@@ -931,14 +946,62 @@ List all active anonymous posts from the past 24 hours. Accessible to all authen
 {
   "posts": [
     {
-      "_id": "651a2b3c4d5e6f7a8b9c0d4b",
-      "content": "Hello campus! Anonymous message here.",
-      "createdAt": "2026-07-29T18:30:00.000Z"
+      "id": "651a2b3c4d5e6f7a8b9c0d4b",
+      "content": "A thoughtful confession or question for campus.",
+      "isAnonymous": false,
+      "author": {
+        "id": "651a2b3c4d5e6f7a8b9c0d1e",
+        "name": "Alex",
+        "username": "alex_campus",
+        "pictures": [{ "url": "https://...", "fileId": "..." }],
+        "gender": "female",
+        "school": "Computer Science",
+        "course": "B.Tech",
+        "identityStatus": "verified",
+        "badges": ["Student"],
+        "tier": "gold"
+      },
+      "upvotesCount": 12,
+      "downvotesCount": 2,
+      "userVote": "upvote",
+      "createdAt": "2026-07-30T18:30:00.000Z"
     }
   ],
   "page": 1,
   "limit": 20,
   "total": 1
+}
+```
+
+---
+
+#### POST `/api/posts/:postId/upvote`
+
+Toggle or set an upvote on a post. If the post is already upvoted by the caller, the upvote is removed. If downvoted, it switches to an upvote. Atomic and safe against race conditions.
+
+**Response (200 OK):**
+```json
+{
+  "message": "Upvoted post",
+  "userVote": "upvote",
+  "upvotesCount": 13,
+  "downvotesCount": 2
+}
+```
+
+---
+
+#### POST `/api/posts/:postId/downvote`
+
+Toggle or set a downvote on a post. If the post is already downvoted by the caller, the downvote is removed. If upvoted, it switches to a downvote. Atomic and safe against race conditions.
+
+**Response (200 OK):**
+```json
+{
+  "message": "Downvoted post",
+  "userVote": "downvote",
+  "upvotesCount": 12,
+  "downvotesCount": 3
 }
 ```
 
