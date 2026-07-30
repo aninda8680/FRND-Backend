@@ -115,8 +115,8 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
       User.countDocuments({ banned: true }),
 
       Like.countDocuments({}),
-      Like.countDocuments({ isSuperlike: { $ne: true } }),
-      Like.countDocuments({ isSuperlike: true }),
+      Like.countDocuments({ type: 'like' }),
+      Like.countDocuments({ type: 'superlike' }),
       Dislike.countDocuments({}),
       Match.countDocuments({}),
       Message.countDocuments({}),
@@ -751,22 +751,21 @@ router.get('/verification-requests', adminAuthRequired, async (req, res) => {
       IdentityVerificationRequest.countDocuments({ status: 'pending' })
     ]);
 
-    const formatted = await Promise.all(requests.map(async (r) => {
-      // Check if a duplicate document flag exists for this request's user
-      const isDuplicate = await AccountFlag.exists({
-        userId: r.userId._id,
-        flagType: 'duplicate_identity_document',
-        status: 'open'
-      });
+    const userIds = requests.map(r => r.userId._id);
+    const duplicateFlags = await AccountFlag.find({
+      userId: { $in: userIds },
+      flagType: 'duplicate_identity_document',
+      status: 'open'
+    }).select('userId').lean();
+    const dupUserSet = new Set(duplicateFlags.map(f => f.userId.toString()));
 
-      return {
-        _id: r._id,
-        userId: r.userId,
-        idCardUrl: getSignedPreviewUrl(r.idCardImage.publicId),
-        faceUrl: getSignedPreviewUrl(r.faceImage.publicId),
-        submittedAt: r.submittedAt,
-        isDuplicate: !!isDuplicate
-      };
+    const formatted = requests.map((r) => ({
+      _id: r._id,
+      userId: r.userId,
+      idCardUrl: getSignedPreviewUrl(r.idCardImage.publicId),
+      faceUrl: getSignedPreviewUrl(r.faceImage.publicId),
+      submittedAt: r.submittedAt,
+      isDuplicate: dupUserSet.has(r.userId._id.toString())
     }));
 
     res.json({ requests: formatted, page, limit, total });
@@ -900,34 +899,45 @@ router.get('/waitlist', adminAuthRequired, async (req, res) => {
               },
               { $sort: { count: -1 } },
               { $limit: 5 }
+            ],
+            domainBreakdown: [
+              { $match: { email: { $exists: true, $ne: "" } } },
+              {
+                $project: {
+                  domain: { $toLower: { $arrayElemAt: [{ $split: ["$email", "@"] }, 1] } }
+                }
+              },
+              {
+                $group: {
+                  _id: "$domain",
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { count: -1 } }
             ]
           }
         }
-      ]),
-      Waitlist.find({ email: { $exists: true, $ne: "" } }).select('email').lean()
+      ])
     ]);
 
-    // Domain & College email analysis across total dataset
+    // Format domain & college email breakdown from DB aggregation
     let collegeCount = 0;
     let generalCount = 0;
-    const domainCounts = {};
+    const rawDomains = visualizerAgg[0]?.domainBreakdown || [];
 
-    allEmails.forEach(item => {
-      if (item.email && item.email.includes('@')) {
-        const domain = item.email.split('@')[1].toLowerCase().trim();
-        domainCounts[domain] = (domainCounts[domain] || 0) + 1;
-        if (domain.includes('.edu') || domain.includes('.ac.in') || domain.includes('adamasuniversity')) {
-          collegeCount++;
-        } else {
-          generalCount++;
-        }
+    rawDomains.forEach(item => {
+      const domain = (item._id || '').trim();
+      if (!domain) return;
+      if (domain.includes('.edu') || domain.includes('.ac.in') || domain.includes('adamasuniversity')) {
+        collegeCount += item.count;
+      } else {
+        generalCount += item.count;
       }
     });
 
-    const topDomains = Object.entries(domainCounts)
-      .map(([domain, count]) => ({ domain, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+    const topDomains = rawDomains
+      .slice(0, 5)
+      .map(d => ({ domain: d._id, count: d.count }));
 
     const timeline = (visualizerAgg[0]?.dailyTimeline || []).map(t => ({ date: t._id, count: t.count }));
     const platforms = (visualizerAgg[0]?.platforms || []).map(p => ({ name: p._id, count: p.count }));
@@ -956,7 +966,7 @@ router.get('/waitlist/visualizer', adminAuthRequired, async (req, res) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const [total, visualizerAgg, allEmails] = await Promise.all([
+    const [total, visualizerAgg] = await Promise.all([
       Waitlist.countDocuments({}),
       Waitlist.aggregate([
         {
@@ -992,33 +1002,44 @@ router.get('/waitlist/visualizer', adminAuthRequired, async (req, res) => {
               },
               { $sort: { count: -1 } },
               { $limit: 5 }
+            ],
+            domainBreakdown: [
+              { $match: { email: { $exists: true, $ne: "" } } },
+              {
+                $project: {
+                  domain: { $toLower: { $arrayElemAt: [{ $split: ["$email", "@"] }, 1] } }
+                }
+              },
+              {
+                $group: {
+                  _id: "$domain",
+                  count: { $sum: 1 }
+                }
+              },
+              { $sort: { count: -1 } }
             ]
           }
         }
-      ]),
-      Waitlist.find({ email: { $exists: true, $ne: "" } }).select('email').lean()
+      ])
     ]);
 
     let collegeCount = 0;
     let generalCount = 0;
-    const domainCounts = {};
+    const rawDomains = visualizerAgg[0]?.domainBreakdown || [];
 
-    allEmails.forEach(item => {
-      if (item.email && item.email.includes('@')) {
-        const domain = item.email.split('@')[1].toLowerCase().trim();
-        domainCounts[domain] = (domainCounts[domain] || 0) + 1;
-        if (domain.includes('.edu') || domain.includes('.ac.in') || domain.includes('adamasuniversity')) {
-          collegeCount++;
-        } else {
-          generalCount++;
-        }
+    rawDomains.forEach(item => {
+      const domain = (item._id || '').trim();
+      if (!domain) return;
+      if (domain.includes('.edu') || domain.includes('.ac.in') || domain.includes('adamasuniversity')) {
+        collegeCount += item.count;
+      } else {
+        generalCount += item.count;
       }
     });
 
-    const topDomains = Object.entries(domainCounts)
-      .map(([domain, count]) => ({ domain, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+    const topDomains = rawDomains
+      .slice(0, 5)
+      .map(d => ({ domain: d._id, count: d.count }));
 
     const timeline = (visualizerAgg[0]?.dailyTimeline || []).map(t => ({ date: t._id, count: t.count }));
     const platforms = (visualizerAgg[0]?.platforms || []).map(p => ({ name: p._id, count: p.count }));

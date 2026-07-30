@@ -16,7 +16,11 @@ if (isCloudinaryConfigured) {
     api_secret: process.env.CLOUDINARY_API_SECRET
   });
 } else {
-  console.warn('Cloudinary not configured. Falling back to local disk storage for uploaded files.');
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('CRITICAL: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET must be configured in production to prevent ephemeral disk media loss.');
+  } else {
+    console.warn('Cloudinary not configured. Falling back to local disk storage for uploaded files in development.');
+  }
 }
 
 function getSafeExtension(originalname, defaultExt = '.jpg') {

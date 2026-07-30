@@ -47,7 +47,8 @@ const identityVerificationRequestSchema = new mongoose.Schema({
   }
 });
 
-// Compound index on status and submittedAt
+// Compound index on status and submittedAt, and userId and submittedAt
 identityVerificationRequestSchema.index({ status: 1, submittedAt: 1 });
+identityVerificationRequestSchema.index({ userId: 1, submittedAt: -1 });
 
 module.exports = mongoose.model('IdentityVerificationRequest', identityVerificationRequestSchema);

@@ -37,7 +37,9 @@ const accountFlagSchema = new mongoose.Schema({
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });
 
-// Compound index on (status, severity, createdAt)
+// Indexes for flag queue sorting and user history queries
 accountFlagSchema.index({ status: 1, severity: 1, createdAt: 1 });
+accountFlagSchema.index({ status: 1, createdAt: -1 });
+accountFlagSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('AccountFlag', accountFlagSchema);

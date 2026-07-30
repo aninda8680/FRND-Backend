@@ -20,7 +20,8 @@ const anonymousPostSchema = new mongoose.Schema({
   }
 });
 
-// Index for query sorting
+// Index for query sorting and user post quota range scans
 anonymousPostSchema.index({ createdAt: -1 });
+anonymousPostSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('AnonymousPost', anonymousPostSchema);

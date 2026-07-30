@@ -120,6 +120,20 @@ const userSchema = new mongoose.Schema({
   openFlagCount: {
     type: Number,
     default: 0
+  },
+  tier: {
+    type: String,
+    enum: ['free', 'silver', 'gold'],
+    default: 'free',
+    index: true
+  },
+  subscriptionExpiresAt: {
+    type: Date
+  },
+  autopayStatus: {
+    type: String,
+    enum: ['active', 'cancelled', 'halted', 'none'],
+    default: 'none'
   }
 }, {
   timestamps: true

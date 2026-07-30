@@ -181,7 +181,7 @@ userSchema.index({ bio: 'text', hobbies: 'text', skills: 'text' });
 userSchema.index({ gender: 1, banned: 1, identityStatus: 1, createdAt: -1 });
 
 // Index for Tier filtering & Subscriptions
-userSchema.index({ tier: 1, subscriptionStatus: 1 });
+userSchema.index({ tier: 1, autopayStatus: 1 });
 
 // Virtual property to calculate exact profile completion percentage (0 - 100%)
 userSchema.virtual('profileCompletionPercentage').get(function() {

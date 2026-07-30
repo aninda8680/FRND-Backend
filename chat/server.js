@@ -71,13 +71,6 @@ async function flushMessages() {
 // Flush messages periodically
 setInterval(flushMessages, FLUSH_INTERVAL);
 
-// Graceful flush on exit
-process.on('SIGTERM', async () => {
-  console.log('[CHAT] SIGTERM received. Flushing pending messages...');
-  await flushMessages();
-  process.exit(0);
-});
-
 // Socket.IO JWT authentication middleware
 io.use((socket, next) => {
   try {
@@ -286,19 +279,27 @@ io.on('connection', async (socket) => {
     }
   });
 
-  // Heartbeat: rate-limited to 1 Redis write per 60 seconds per socket (saves Upstash requests & TLS CPU)
+  // Heartbeat: rate-limited to 1 Redis write per 60 seconds per socket
   let lastHeartbeat = 0;
   socket.on('heartbeat', async () => {
-    const now = Date.now();
-    if (now - lastHeartbeat < 60000) return; // 60s throttle
-    lastHeartbeat = now;
-    await redis.set(presenceKey, '1', { EX: 120 });
+    try {
+      const now = Date.now();
+      if (now - lastHeartbeat < 60000) return; // 60s throttle
+      lastHeartbeat = now;
+      await redis.set(presenceKey, '1', { EX: 120 });
+    } catch (err) {
+      console.error('[CHAT] Error setting presence heartbeat:', err.message);
+    }
   });
 
   // Handle disconnection
   socket.on('disconnect', async () => {
-    console.log(`[CHAT] User disconnected: ${userId}`);
-    await redis.del(presenceKey);
+    try {
+      console.log(`[CHAT] User disconnected: ${userId}`);
+      await redis.del(presenceKey);
+    } catch (err) {
+      console.error('[CHAT] Error removing presence on disconnect:', err.message);
+    }
   });
 });
 
@@ -373,7 +374,12 @@ async function startServer() {
 
     // Graceful Shutdown Handlers (SIGTERM / SIGINT)
     const gracefulShutdown = async (signal) => {
-      console.log(`[CHAT SYS] ${signal} received. Closing Chat WebSockets & HTTP server...`);
+      console.log(`[CHAT SYS] ${signal} received. Flushing pending messages and closing Chat WebSockets & HTTP server...`);
+      try {
+        await flushMessages();
+      } catch (flushErr) {
+        console.error('[CHAT SYS ERROR] Error flushing messages on shutdown:', flushErr.message);
+      }
       io.close();
       server.close(async () => {
         try {
