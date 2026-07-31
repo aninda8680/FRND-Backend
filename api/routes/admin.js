@@ -71,21 +71,10 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
     }
 
     const [
-      totalUsers,
-      freeUsers,
-      silverUsers,
-      goldUsers,
-      maleUsers,
-      femaleUsers,
-      otherUsers,
-      verifiedUsers,
+      userStatsAgg,
+      likeStatsAgg,
+      flagStatsAgg,
       pendingVerifications,
-      unverifiedUsers,
-      bannedUsers,
-
-      totalLikes,
-      standardLikes,
-      superlikes,
       totalDislikes,
       totalMatches,
       totalMessages,
@@ -93,30 +82,45 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
       totalFeedback,
       totalWaitlist,
       totalCareers,
-
-      openFlags,
-      highFlags,
-      mediumFlags,
-      lowFlags,
       totalReports,
-
       paymentAgg
     ] = await Promise.all([
-      User.countDocuments({}),
-      User.countDocuments({ $or: [{ tier: 'free' }, { tier: { $exists: false } }] }),
-      User.countDocuments({ tier: 'silver' }),
-      User.countDocuments({ tier: 'gold' }),
-      User.countDocuments({ gender: 'male' }),
-      User.countDocuments({ gender: 'female' }),
-      User.countDocuments({ gender: { $nin: ['male', 'female'] } }),
-      User.countDocuments({ identityStatus: 'verified' }),
+      User.aggregate([
+        {
+          $facet: {
+            totalUsers: [{ $count: 'count' }],
+            freeUsers: [{ $match: { $or: [{ tier: 'free' }, { tier: { $exists: false } }] } }, { $count: 'count' }],
+            silverUsers: [{ $match: { tier: 'silver' } }, { $count: 'count' }],
+            goldUsers: [{ $match: { tier: 'gold' } }, { $count: 'count' }],
+            maleUsers: [{ $match: { gender: 'male' } }, { $count: 'count' }],
+            femaleUsers: [{ $match: { gender: 'female' } }, { $count: 'count' }],
+            otherUsers: [{ $match: { gender: { $nin: ['male', 'female'] } } }, { $count: 'count' }],
+            verifiedUsers: [{ $match: { identityStatus: 'verified' } }, { $count: 'count' }],
+            unverifiedUsers: [{ $match: { identityStatus: { $in: ['unverified', 'rejected'] } } }, { $count: 'count' }],
+            bannedUsers: [{ $match: { banned: true } }, { $count: 'count' }]
+          }
+        }
+      ]),
+      Like.aggregate([
+        {
+          $facet: {
+            totalLikes: [{ $count: 'count' }],
+            standardLikes: [{ $match: { type: 'like' } }, { $count: 'count' }],
+            superlikes: [{ $match: { type: 'superlike' } }, { $count: 'count' }]
+          }
+        }
+      ]),
+      AccountFlag.aggregate([
+        {
+          $facet: {
+            openFlags: [{ $match: { status: 'open' } }, { $count: 'count' }],
+            highFlags: [{ $match: { status: 'open', severity: 'high' } }, { $count: 'count' }],
+            mediumFlags: [{ $match: { status: 'open', severity: 'medium' } }, { $count: 'count' }],
+            lowFlags: [{ $match: { status: 'open', severity: 'low' } }, { $count: 'count' }]
+          }
+        }
+      ]),
       IdentityVerificationRequest.countDocuments({ status: 'pending' }),
-      User.countDocuments({ identityStatus: { $in: ['unverified', 'rejected'] } }),
-      User.countDocuments({ banned: true }),
-
-      Like.countDocuments({}),
-      Like.countDocuments({ type: 'like' }),
-      Like.countDocuments({ type: 'superlike' }),
       Dislike.countDocuments({}),
       Match.countDocuments({}),
       Message.countDocuments({}),
@@ -124,13 +128,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
       Feedback.countDocuments({}),
       Waitlist.countDocuments({}),
       CareerApplication.countDocuments({}),
-
-      AccountFlag.countDocuments({ status: 'open' }),
-      AccountFlag.countDocuments({ status: 'open', severity: 'high' }),
-      AccountFlag.countDocuments({ status: 'open', severity: 'medium' }),
-      AccountFlag.countDocuments({ status: 'open', severity: 'low' }),
       Report.countDocuments({}),
-
       Payment.aggregate([
         { $match: { status: { $in: ['paid', 'active'] } } },
         {
@@ -162,6 +160,28 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
         }
       ])
     ]);
+
+    const getFacetCount = (agg, key) => (agg && agg[0] && agg[0][key] && agg[0][key][0] && agg[0][key][0].count) || 0;
+
+    const totalUsers = getFacetCount(userStatsAgg, 'totalUsers');
+    const freeUsers = getFacetCount(userStatsAgg, 'freeUsers');
+    const silverUsers = getFacetCount(userStatsAgg, 'silverUsers');
+    const goldUsers = getFacetCount(userStatsAgg, 'goldUsers');
+    const maleUsers = getFacetCount(userStatsAgg, 'maleUsers');
+    const femaleUsers = getFacetCount(userStatsAgg, 'femaleUsers');
+    const otherUsers = getFacetCount(userStatsAgg, 'otherUsers');
+    const verifiedUsers = getFacetCount(userStatsAgg, 'verifiedUsers');
+    const unverifiedUsers = getFacetCount(userStatsAgg, 'unverifiedUsers');
+    const bannedUsers = getFacetCount(userStatsAgg, 'bannedUsers');
+
+    const totalLikes = getFacetCount(likeStatsAgg, 'totalLikes');
+    const standardLikes = getFacetCount(likeStatsAgg, 'standardLikes');
+    const superlikes = getFacetCount(likeStatsAgg, 'superlikes');
+
+    const openFlags = getFacetCount(flagStatsAgg, 'openFlags');
+    const highFlags = getFacetCount(flagStatsAgg, 'highFlags');
+    const mediumFlags = getFacetCount(flagStatsAgg, 'mediumFlags');
+    const lowFlags = getFacetCount(flagStatsAgg, 'lowFlags');
 
     const payStats = (paymentAgg && paymentAgg[0]) ? paymentAgg[0] : {
       totalRevenue: 0,
@@ -858,7 +878,7 @@ router.get('/waitlist', adminAuthRequired, async (req, res) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const [entries, total, visualizerAgg, allEmails] = await Promise.all([
+    const [entries, total, visualizerAgg] = await Promise.all([
       Waitlist.find({})
         .sort({ createdAt: -1 })
         .skip(skip)

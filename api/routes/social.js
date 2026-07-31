@@ -275,11 +275,11 @@ router.get('/discover', authRequired, async (req, res) => {
     }
 
     if (!scoredProfiles) {
-      // A-C: Fetch blocks, likes/dislikes, matches in parallel — 1 round-trip instead of 4
+      // A-C: Fetch blocks, likes/dislikes (capped to recent 500), matches in parallel — 1 round-trip instead of 4
       const [blocks, sentLikes, sentDislikes, matches] = await Promise.all([
         Block.find({ $or: [{ blockerId: userId }, { blockedId: userId }] }).lean(),
-        Like.find({ fromUserId: userId }).select('toUserId').lean(),
-        Dislike.find({ fromUserId: userId }).select('toUserId').lean(),
+        Like.find({ fromUserId: userId }).select('toUserId').sort({ _id: -1 }).limit(500).lean(),
+        Dislike.find({ fromUserId: userId }).select('toUserId').sort({ _id: -1 }).limit(500).lean(),
         Match.find({ $or: [{ userA: userId }, { userB: userId }] }).lean()
       ]);
 
