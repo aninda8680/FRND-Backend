@@ -156,7 +156,7 @@ io.on('connection', async (socket) => {
       // Batch-fetch all liker profiles in ONE query — eliminates N+1
       const likerIds = incomingLikes.map(l => l.fromUserId);
       const likerUsers = await User.find({ _id: { $in: likerIds }, banned: false })
-        .select('name age height pictures bio school course gender identityStatus badges tier')
+        .select('name age height pictures bio school course gender identityStatus badges tier subscriptionExpiresAt customDesignId')
         .lean();
       const likerMap = Object.fromEntries(likerUsers.map(u => [u._id.toString(), u]));
 
@@ -164,7 +164,13 @@ io.on('connection', async (socket) => {
         .map(l => {
           const profile = likerMap[l.fromUserId.toString()];
           if (!profile) return null;
-          return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile };
+          const isLikerGold = profile.tier === 'gold' && (!profile.subscriptionExpiresAt || new Date(profile.subscriptionExpiresAt) > now);
+          const formattedProfile = {
+            ...profile,
+            customDesignId: isLikerGold ? (profile.customDesignId || null) : null
+          };
+          delete formattedProfile.subscriptionExpiresAt;
+          return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile: formattedProfile };
         })
         .filter(Boolean);
 

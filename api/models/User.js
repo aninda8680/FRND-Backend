@@ -162,6 +162,11 @@ const userSchema = new mongoose.Schema({
     enum: ['active', 'cancelled', 'halted', 'none'],
     default: 'none'
   },
+  customDesignId: {
+    type: String,
+    trim: true,
+    default: null
+  },
   resetPasswordToken: {
     type: String
   },

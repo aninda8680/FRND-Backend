@@ -133,7 +133,7 @@ router.get('/users/me', authRequired, async (req, res) => {
 // PUT /api/users/me
 router.put('/users/me', authRequired, async (req, res) => {
   try {
-    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, tags, pictures, interests, prompts, religion, beliefs } = req.body;
+    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, tags, pictures, interests, prompts, religion, beliefs, customDesignId } = req.body;
 
     // Input validation
     if (username !== undefined) {
@@ -209,6 +209,21 @@ router.put('/users/me', authRequired, async (req, res) => {
     if (tags !== undefined && typeof tags === 'object' && !Array.isArray(tags)) allowedUpdates.tags = tags;
     if (pictures !== undefined) allowedUpdates.pictures = pictures;
 
+    if (customDesignId !== undefined) {
+      const existingUser = await User.findById(req.user.id).lean();
+      const now = new Date();
+      const isGoldActive = existingUser && existingUser.tier === 'gold' && (!existingUser.subscriptionExpiresAt || new Date(existingUser.subscriptionExpiresAt) > now);
+
+      if (customDesignId !== null && customDesignId !== '') {
+        if (!isGoldActive) {
+          return res.status(403).json({ error: 'Custom profile designs are exclusive to active Gold Pass subscribers' });
+        }
+        allowedUpdates.customDesignId = String(customDesignId).trim();
+      } else {
+        allowedUpdates.customDesignId = null;
+      }
+    }
+
     if (interests !== undefined || prompts !== undefined) {
       const config = await getOrInitOnboardingConfig();
       if (interests !== undefined) {
@@ -240,6 +255,43 @@ router.put('/users/me', authRequired, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error updating profile' });
+  }
+});
+
+// PUT /api/users/me/design (Claim or set custom profile design theme ID — Gold Pass Exclusive)
+router.put('/users/me/design', authRequired, async (req, res) => {
+  try {
+    const { customDesignId } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const now = new Date();
+    const isGoldActive = user.tier === 'gold' && (!user.subscriptionExpiresAt || new Date(user.subscriptionExpiresAt) > now);
+
+    if (customDesignId !== null && customDesignId !== '' && customDesignId !== undefined) {
+      if (!isGoldActive) {
+        return res.status(403).json({ error: 'Custom profile designs are exclusive to active Gold Pass subscribers' });
+      }
+      if (typeof customDesignId !== 'string' || customDesignId.trim().length > 100) {
+        return res.status(400).json({ error: 'customDesignId must be a valid string (max 100 chars)' });
+      }
+      user.customDesignId = customDesignId.trim();
+    } else {
+      user.customDesignId = null;
+    }
+
+    await user.save();
+    await redis.del(`discover:${req.user.id}`);
+
+    res.json({
+      message: user.customDesignId ? 'Custom profile design set successfully' : 'Custom design reset to default',
+      customDesignId: user.customDesignId
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error updating custom design' });
   }
 });
 
@@ -312,7 +364,7 @@ router.get('/discover', authRequired, async (req, res) => {
       // .lean() = plain JS objects, ~70% less RAM than Mongoose docs
       // .limit(200) = safety cap: with 700 users we never need to load all into RAM
       const candidateProfiles = await User.find(query)
-        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt religion beliefs')
+        .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt religion beliefs customDesignId')
         .limit(200)
         .lean();
 
@@ -327,6 +379,7 @@ router.get('/discover', authRequired, async (req, res) => {
         const weightedScore = (boostMultiplier * 1000) + Math.floor(Math.random() * 500);
 
         const doc = { ...p };
+        doc.customDesignId = activeTier === 'gold' ? (p.customDesignId || null) : null;
         delete doc.subscriptionExpiresAt;
         return { profile: doc, score: weightedScore };
       });
@@ -640,7 +693,7 @@ async function getReceivedLikes(req, res) {
     // If Silver or Gold subscription active, batch-fetch all liker profiles in ONE query
     const likerIds = incomingLikes.map(l => l.fromUserId);
     const likerUsers = await User.find({ _id: { $in: likerIds }, banned: false })
-      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier religion beliefs')
+      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt religion beliefs customDesignId')
       .lean();
     const likerMap = Object.fromEntries(likerUsers.map(u => [u._id.toString(), u]));
 
@@ -648,7 +701,13 @@ async function getReceivedLikes(req, res) {
       .map(l => {
         const profile = likerMap[l.fromUserId.toString()];
         if (!profile) return null;
-        return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile };
+        const isLikerGold = profile.tier === 'gold' && (!profile.subscriptionExpiresAt || new Date(profile.subscriptionExpiresAt) > now);
+        const formattedProfile = {
+          ...profile,
+          customDesignId: isLikerGold ? (profile.customDesignId || null) : null
+        };
+        delete formattedProfile.subscriptionExpiresAt;
+        return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile: formattedProfile };
       })
       .filter(Boolean);
 
@@ -705,15 +764,22 @@ async function getGivenLikes(req, res) {
     // 3. Batch-fetch all target profiles in ONE query instead of N queries
     const targetIds = sentLikes.map(l => l.toUserId);
     const targetUsers = await User.find({ _id: { $in: targetIds }, banned: false })
-      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier religion beliefs')
+      .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt religion beliefs customDesignId')
       .lean();
     const targetMap = Object.fromEntries(targetUsers.map(u => [u._id.toString(), u]));
 
+    const now = new Date();
     const validLikes = sentLikes
       .map(l => {
         const profile = targetMap[l.toUserId.toString()];
         if (!profile) return null;
-        return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile };
+        const isTargetGold = profile.tier === 'gold' && (!profile.subscriptionExpiresAt || new Date(profile.subscriptionExpiresAt) > now);
+        const formattedProfile = {
+          ...profile,
+          customDesignId: isTargetGold ? (profile.customDesignId || null) : null
+        };
+        delete formattedProfile.subscriptionExpiresAt;
+        return { likeId: l._id, type: l.type || 'like', likedAt: l.createdAt, profile: formattedProfile };
       })
       .filter(Boolean);
 
@@ -763,7 +829,7 @@ router.get('/matches', authRequired, async (req, res) => {
       m.userA.toString() === req.user.id ? m.userB : m.userA
     );
     const partnerUsers = await User.find({ _id: { $in: partnerIds } })
-      .select('name age school course gender pictures bio badges identityStatus')
+      .select('name age school course gender pictures bio badges identityStatus tier subscriptionExpiresAt customDesignId')
       .lean();
     const partnerMap = Object.fromEntries(partnerUsers.map(u => [u._id.toString(), u]));
 
@@ -777,16 +843,23 @@ router.get('/matches', authRequired, async (req, res) => {
       partnerIds.map((id, i) => [id.toString(), !!presenceResults[i]])
     );
 
+    const now = new Date();
     const populatedMatches = visibleMatches
       .map(m => {
         const partnerId = m.userA.toString() === req.user.id ? m.userB : m.userA;
         const partner = partnerMap[partnerId.toString()];
         if (!partner) return null;
+        const isPartnerGold = partner.tier === 'gold' && (!partner.subscriptionExpiresAt || new Date(partner.subscriptionExpiresAt) > now);
+        const formattedPartner = {
+          ...partner,
+          customDesignId: isPartnerGold ? (partner.customDesignId || null) : null
+        };
+        delete formattedPartner.subscriptionExpiresAt;
         return {
           id: m._id,
           matchedAt: m.matchedAt,
           conversationId: m.conversationId,
-          partner: { ...partner, isOnline: presenceMap[partnerId.toString()] || false }
+          partner: { ...formattedPartner, isOnline: presenceMap[partnerId.toString()] || false }
         };
       })
       .filter(Boolean);
@@ -1040,7 +1113,8 @@ router.post('/posts', authRequired, async (req, res) => {
           name: user.name,
           username: user.username,
           pictures: user.pictures,
-          tier: user.tier
+          tier: user.tier,
+          customDesignId: activeTier === 'gold' ? (user.customDesignId || null) : null
         },
         upvotesCount: 0,
         downvotesCount: 0,
@@ -1083,7 +1157,7 @@ router.get('/posts', authRequired, async (req, res) => {
         upvotes: { $elemMatch: { $eq: currentUserId } },
         downvotes: { $elemMatch: { $eq: currentUserId } }
       })
-        .populate('userId', 'name username pictures gender school course identityStatus badges tier')
+        .populate('userId', 'name username pictures gender school course identityStatus badges tier subscriptionExpiresAt customDesignId')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -1091,6 +1165,7 @@ router.get('/posts', authRequired, async (req, res) => {
       AnonymousPost.countDocuments(filter)
     ]);
 
+    const now = new Date();
     const formattedPosts = posts.map(p => {
       const isAnon = p.isAnonymous !== false;
       const hasUpvoted = Array.isArray(p.upvotes) && p.upvotes.length > 0;
@@ -1099,6 +1174,8 @@ router.get('/posts', authRequired, async (req, res) => {
       let userVote = null;
       if (hasUpvoted) userVote = 'upvote';
       else if (hasDownvoted) userVote = 'downvote';
+
+      const isAuthorGold = p.userId && p.userId.tier === 'gold' && (!p.userId.subscriptionExpiresAt || new Date(p.userId.subscriptionExpiresAt) > now);
 
       const authorObj = (!isAnon && p.userId) ? {
         id: p.userId._id,
@@ -1110,7 +1187,8 @@ router.get('/posts', authRequired, async (req, res) => {
         course: p.userId.course,
         identityStatus: p.userId.identityStatus,
         badges: p.userId.badges,
-        tier: p.userId.tier
+        tier: p.userId.tier,
+        customDesignId: isAuthorGold ? (p.userId.customDesignId || null) : null
       } : null;
 
       return {

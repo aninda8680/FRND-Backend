@@ -134,6 +134,11 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['active', 'cancelled', 'halted', 'none'],
     default: 'none'
+  },
+  customDesignId: {
+    type: String,
+    trim: true,
+    default: null
   }
 }, {
   timestamps: true
