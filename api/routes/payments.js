@@ -99,8 +99,8 @@ async function getOrCreateRazorpayPlan(razorpay, tier) {
   }
 }
 
-// POST /api/payments/create-subscription (Create Razorpay Autopay Subscription)
-router.post('/create-subscription', authRequired, async (req, res) => {
+// Handler: Create Razorpay Autopay Subscription
+async function createSubscriptionHandler(req, res) {
   try {
     const { tier } = req.body;
     if (!tier || !['silver', 'gold'].includes(tier)) {
@@ -138,7 +138,7 @@ router.post('/create-subscription', authRequired, async (req, res) => {
       // Simulated Razorpay Autopay Subscription for dev/test mode
       isSimulated = true;
       planId = `plan_sim_${tier}_${tierDetails.pricePaise}`;
-      razorpaySubscriptionId = `sub_sim_${tier}_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+      razorpaySubscriptionId = `sub_sim_${tier}_${Date.now()}_${crypto.randomInt(1000, 10000)}`;
     }
 
     // Record Subscription Payment intent in DB
@@ -173,16 +173,20 @@ router.post('/create-subscription', authRequired, async (req, res) => {
     console.error('[RAZORPAY CREATE SUBSCRIPTION ERROR]:', err);
     res.status(500).json({ error: 'Failed to create Razorpay subscription' });
   }
-});
+}
 
-// Alias POST /api/payments/create-order -> maps to create-subscription for backward compatibility
-router.post('/create-order', authRequired, async (req, res, next) => {
-  return router.handle(req, res, next);
-});
+// POST /api/payments/create-subscription and alias /create-order
+router.post('/create-subscription', authRequired, createSubscriptionHandler);
+router.post('/create-order', authRequired, createSubscriptionHandler);
 
-// POST /api/payments/verify-subscription (Verify Razorpay Autopay signature & activate 30-day recurring plan)
-router.post('/verify-subscription', authRequired, async (req, res) => {
+// Handler: Verify Razorpay Autopay signature & activate 28-day recurring plan
+async function verifySubscriptionHandler(req, res) {
   try {
+    // Support legacy field alias
+    if (!req.body.razorpay_subscription_id && req.body.razorpay_order_id) {
+      req.body.razorpay_subscription_id = req.body.razorpay_order_id;
+    }
+
     const { razorpay_subscription_id, razorpay_payment_id, razorpay_signature } = req.body;
 
     if (!razorpay_subscription_id || !razorpay_payment_id || !razorpay_signature) {
@@ -265,18 +269,11 @@ router.post('/verify-subscription', authRequired, async (req, res) => {
     console.error('[RAZORPAY VERIFY SUBSCRIPTION ERROR]:', err);
     res.status(500).json({ error: 'Server error verifying subscription' });
   }
-});
+}
 
-// Alias POST /api/payments/verify -> maps to verify-subscription logic directly
-router.post('/verify', authRequired, async (req, res) => {
-  // Normalize field name for backward compatibility
-  if (!req.body.razorpay_subscription_id && req.body.razorpay_order_id) {
-    req.body.razorpay_subscription_id = req.body.razorpay_order_id;
-  }
-  // Re-dispatch directly to the verify-subscription handler function
-  req.url = '/verify-subscription';
-  router.handle(req, res, () => res.status(404).json({ error: 'Route not found' }));
-});
+// POST /api/payments/verify-subscription and alias /verify
+router.post('/verify-subscription', authRequired, verifySubscriptionHandler);
+router.post('/verify', authRequired, verifySubscriptionHandler);
 
 // POST /api/payments/cancel-subscription (Cancel Autopay recurring subscription)
 router.post('/cancel-subscription', authRequired, async (req, res) => {

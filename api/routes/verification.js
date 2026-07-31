@@ -10,6 +10,14 @@ const { uploadVerificationImage } = require('../utils/uploader');
 // Memory storage for multer — with strict MIME type validation
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
+let fileTypePromise = null;
+async function getFileType() {
+  if (!fileTypePromise) {
+    fileTypePromise = import('file-type').then(m => m.default || m);
+  }
+  return fileTypePromise;
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 2 * 1024 * 1024 }, // 2MB per file (lowered to save memory on 512MB RAM free tier)
@@ -54,8 +62,7 @@ async function handleIdentitySubmit(req, res, isResubmit = false) {
     }
 
     // Magic-byte validation: verify actual file content matches allowed image types
-    const fileTypeModule = await import('file-type');
-    const ft = fileTypeModule.default || fileTypeModule;
+    const ft = await getFileType();
     const detectedIdCard = await ft.fromBuffer(idCardFile.buffer);
     const detectedFace = await ft.fromBuffer(faceFile.buffer);
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];

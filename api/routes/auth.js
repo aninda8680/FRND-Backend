@@ -22,9 +22,9 @@ const OTP_TTL_SECONDS = 600; // 10 min
 const SIGNUP_CLUSTER_THRESHOLD = 5;
 const SIGNUP_CLUSTER_WINDOW_SECONDS = 3600;
 
-// Helper to generate a 6-digit OTP
+// Helper to generate a 6-digit OTP using cryptographically secure random bytes
 function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 // Helper to hash OTP using SHA-256 for fast, low-CPU verification
@@ -163,7 +163,7 @@ router.post('/signup', async (req, res) => {
       finalUsername = prefix || 'user';
       let exists = await User.exists({ username: finalUsername });
       while (exists) {
-        finalUsername = `${prefix}_${Math.floor(1000 + Math.random() * 9000)}`;
+        finalUsername = `${prefix}_${crypto.randomInt(1000, 10000)}`;
         exists = await User.exists({ username: finalUsername });
       }
     }
@@ -179,13 +179,16 @@ router.post('/signup', async (req, res) => {
       }
     }
 
-    // 5. Check if user already exists
-    const existingEmail = await User.findOne({ email: cleanEmail });
+    // 5. Check if user already exists (in parallel using boolean exists checks)
+    const [existingEmail, existingUsername] = await Promise.all([
+      User.exists({ email: cleanEmail }),
+      User.exists({ username: finalUsername })
+    ]);
+
     if (existingEmail) {
       return res.status(400).json({ error: 'Email already registered' });
     }
-    
-    const existingUsername = await User.findOne({ username: finalUsername });
+
     if (existingUsername) {
       return res.status(400).json({ error: 'Username already taken' });
     }
