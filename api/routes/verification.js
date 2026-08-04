@@ -13,7 +13,12 @@ const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 let fileTypePromise = null;
 async function getFileType() {
   if (!fileTypePromise) {
-    fileTypePromise = import('file-type').then(m => m.default || m);
+    fileTypePromise = import('file-type')
+      .then(m => m.default || m)
+      .catch(err => {
+        fileTypePromise = null;
+        throw err;
+      });
   }
   return fileTypePromise;
 }
@@ -39,6 +44,9 @@ function handleUploadErrors(err, req, res, next) {
 
 // Helper to handle image verification submissions
 async function handleIdentitySubmit(req, res, isResubmit = false) {
+  const expectedStatus = isResubmit ? 'unverified' : 'not_submitted';
+  let statusLocked = false;
+
   try {
     const files = req.files;
     if (!files || !files.idCard || !files.face) {
@@ -48,18 +56,28 @@ async function handleIdentitySubmit(req, res, isResubmit = false) {
     const idCardFile = files.idCard[0];
     const faceFile = files.face[0];
 
-    const user = await User.findById(req.user.id);
+    // Atomic status transition lock: prevents race condition on double submission
+    const user = await User.findOneAndUpdate(
+      { _id: req.user.id, identityStatus: expectedStatus },
+      { $set: { identityStatus: 'pending' } },
+      { new: true }
+    );
+
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (isResubmit && user.identityStatus !== 'unverified') {
-      return res.status(400).json({ error: 'You can only resubmit if your verification status is unverified' });
-    }
-
-    if (!isResubmit && user.identityStatus !== 'not_submitted') {
+      const currentUser = await User.findById(req.user.id).select('identityStatus').lean();
+      if (!currentUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      if (currentUser.identityStatus === 'pending') {
+        return res.status(400).json({ error: 'Verification request is already pending review' });
+      }
+      if (isResubmit && currentUser.identityStatus !== 'unverified') {
+        return res.status(400).json({ error: 'You can only resubmit if your verification status is unverified' });
+      }
       return res.status(400).json({ error: 'Verification request already submitted or verified' });
     }
+
+    statusLocked = true;
 
     // Magic-byte validation: verify actual file content matches allowed image types
     const ft = await getFileType();
@@ -68,12 +86,15 @@ async function handleIdentitySubmit(req, res, isResubmit = false) {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!detectedIdCard || !allowedTypes.includes(detectedIdCard.mime) ||
         !detectedFace || !allowedTypes.includes(detectedFace.mime)) {
+      await User.findByIdAndUpdate(req.user.id, { $set: { identityStatus: expectedStatus } });
       return res.status(400).json({ error: 'Invalid file content. Only real JPEG, PNG, or WebP images are accepted.' });
     }
 
-    // 1. Upload images to Cloudinary / CDN (or local fallback in dev)
-    const idCardUpload = await uploadVerificationImage(idCardFile);
-    const faceUpload = await uploadVerificationImage(faceFile);
+    // 1. Parallel upload images to Cloudinary / CDN
+    const [idCardUpload, faceUpload] = await Promise.all([
+      uploadVerificationImage(idCardFile),
+      uploadVerificationImage(faceFile)
+    ]);
 
     // 2. Save verification request
     const verificationRequest = new IdentityVerificationRequest({
@@ -85,11 +106,7 @@ async function handleIdentitySubmit(req, res, isResubmit = false) {
     });
     await verificationRequest.save();
 
-    // 3. Update user status to pending
-    user.identityStatus = 'pending';
-    await user.save();
-
-    // 4. If this is a resubmit, check for repeated rejection flag
+    // 3. If this is a resubmit, check for repeated rejection flag
     if (isResubmit) {
       const priorRejections = await IdentityVerificationRequest.countDocuments({
         userId: user._id,
@@ -113,6 +130,9 @@ async function handleIdentitySubmit(req, res, isResubmit = false) {
       status: 'pending'
     });
   } catch (err) {
+    if (statusLocked) {
+      await User.findByIdAndUpdate(req.user.id, { $set: { identityStatus: expectedStatus } }).catch(() => {});
+    }
     console.error(err);
     res.status(500).json({ error: 'Server error during identity verification submission' });
   }
@@ -143,14 +163,15 @@ router.post('/identity/resubmit', authRequired,
 // GET /api/verification/identity/status
 router.get('/identity/status', authRequired, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).select('identityStatus').lean();
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     const latestRequest = await IdentityVerificationRequest.findOne({ userId: user._id })
       .sort({ submittedAt: -1 })
-      .select('status reason submittedAt reviewedAt');
+      .select('status reason submittedAt reviewedAt')
+      .lean();
 
     res.json({
       identityStatus: user.identityStatus,

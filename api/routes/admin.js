@@ -279,7 +279,8 @@ router.get('/payments', adminAuthRequired, async (req, res) => {
         .populate('userId', 'name email username tier')
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Payment.countDocuments(filter)
     ]);
 
@@ -450,7 +451,8 @@ router.get('/flags', adminAuthRequired, async (req, res) => {
         .populate('userId', 'name email username openFlagCount')
         .sort({ severity: -1, createdAt: 1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       AccountFlag.countDocuments({ status })
     ]);
 
@@ -482,19 +484,25 @@ router.get('/flags/user/:userId', adminAuthRequired, async (req, res) => {
 // Helper for flag status transitions
 async function transitionFlag(req, res, targetStatus, autoBanUser = false) {
   try {
-    const flag = await AccountFlag.findById(req.params.id);
-    if (!flag) {
-      return res.status(404).json({ error: 'Flag not found' });
-    }
+    const flag = await AccountFlag.findOneAndUpdate(
+      { _id: req.params.id, status: 'open' },
+      {
+        $set: {
+          status: targetStatus,
+          reviewedBy: req.admin._id,
+          reviewedAt: new Date()
+        }
+      },
+      { new: true }
+    );
 
-    if (flag.status !== 'open') {
+    if (!flag) {
+      const existing = await AccountFlag.findById(req.params.id).lean();
+      if (!existing) {
+        return res.status(404).json({ error: 'Flag not found' });
+      }
       return res.status(400).json({ error: 'Flag is already resolved' });
     }
-
-    flag.status = targetStatus;
-    flag.reviewedBy = req.admin._id;
-    flag.reviewedAt = new Date();
-    await flag.save();
 
     // Decrement open flag count on user (atomic)
     const updateOp = { $inc: { openFlagCount: -1 } };
@@ -546,7 +554,8 @@ router.get('/users', adminAuthRequired, async (req, res) => {
         .select('name email username gender age school course isPremium tier subscriptionExpiresAt autopayStatus openFlagCount banned identityStatus createdAt')
         .sort({ openFlagCount: -1, createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       User.countDocuments(filter)
     ]);
     res.json({ users, page, limit, total });
@@ -767,11 +776,12 @@ router.get('/verification-requests', adminAuthRequired, async (req, res) => {
         .populate('userId', 'name email username')
         .sort({ submittedAt: 1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       IdentityVerificationRequest.countDocuments({ status: 'pending' })
     ]);
 
-    const userIds = requests.map(r => r.userId._id);
+    const userIds = requests.map(r => r.userId ? r.userId._id : null).filter(Boolean);
     const duplicateFlags = await AccountFlag.find({
       userId: { $in: userIds },
       flagType: 'duplicate_identity_document',
@@ -782,10 +792,10 @@ router.get('/verification-requests', adminAuthRequired, async (req, res) => {
     const formatted = requests.map((r) => ({
       _id: r._id,
       userId: r.userId,
-      idCardUrl: getSignedPreviewUrl(r.idCardImage.publicId),
-      faceUrl: getSignedPreviewUrl(r.faceImage.publicId),
+      idCardUrl: r.idCardImage && r.idCardImage.publicId ? getSignedPreviewUrl(r.idCardImage.publicId) : null,
+      faceUrl: r.faceImage && r.faceImage.publicId ? getSignedPreviewUrl(r.faceImage.publicId) : null,
       submittedAt: r.submittedAt,
-      isDuplicate: dupUserSet.has(r.userId._id.toString())
+      isDuplicate: r.userId ? dupUserSet.has(r.userId._id.toString()) : false
     }));
 
     res.json({ requests: formatted, page, limit, total });

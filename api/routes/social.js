@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const crypto = require('crypto');
+const http = require('http');
+const https = require('https');
 const User = require('../models/User');
 const Like = require('../models/Like');
 const Dislike = require('../models/Dislike');
@@ -15,6 +17,9 @@ const redis = require('../utils/redis');
 const { authRequired } = require('../middleware/auth');
 const { getOrInitOnboardingConfig, formatUserInterests, formatUserPrompts } = require('../utils/onboardingConfig');
 const emailService = require('../utils/emailService');
+
+// Pre-load dynamic ESM file-type module at startup scope to avoid per-request resolution overhead
+const fileTypePromise = import('file-type').then(m => m.default || m).catch(() => null);
 
 // GET /api/config/onboarding (Fetch onboarding interests segments and prompt sections for frontend UI)
 router.get('/config/onboarding', async (req, res) => {
@@ -81,9 +86,8 @@ router.post('/upload/picture', authRequired, uploadPicture.single('picture'), ha
 
     // Magic-byte validation: verify actual file content matches claimed MIME type
     // Prevents MIME spoofing (uploading .exe/.php with Content-Type: image/jpeg)
-    const fileTypeModule = await import('file-type');
-    const ft = fileTypeModule.default || fileTypeModule;
-    const detected = await ft.fromBuffer(file.buffer);
+    const ft = await fileTypePromise;
+    const detected = ft ? await ft.fromBuffer(file.buffer) : null;
     const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!detected || !allowedMimeTypes.includes(detected.mime)) {
       return res.status(400).json({ error: 'Invalid file content. Only real JPEG, PNG, WEBP, or GIF images are allowed.' });
@@ -365,6 +369,7 @@ router.get('/discover', authRequired, async (req, res) => {
       // .limit(200) = safety cap: with 700 users we never need to load all into RAM
       const candidateProfiles = await User.find(query)
         .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt religion beliefs customDesignId')
+        .sort({ _id: -1 })
         .limit(200)
         .lean();
 
@@ -505,18 +510,16 @@ async function handleLikeAction(req, res, actionType) {
       await User.findByIdAndUpdate(fromUserId, { $inc: { openFlagCount: 1 } });
     }
 
-    // E. Check for mutual like BEFORE upserting own like
-    // This is critical — we need to know if the other user already liked us
-    // BEFORE we write our like, so that a concurrent duplicate upsert can't
-    // swallow the match-formed state in the outer catch block.
-    const mutualLike = await Like.findOne({ fromUserId: toUserId, toUserId: fromUserId }).lean();
-
-    // F. Save/upsert own Like document (one like per pair)
+    // E. Save/upsert own Like document first
     await Like.findOneAndUpdate(
       { fromUserId, toUserId },
       { type: actionType, createdAt: new Date() },
       { upsert: true, setDefaultsOnInsert: true }
     );
+
+    // F. Check for mutual like AFTER upserting own like
+    // Ensures concurrent right-swipes from both users reliably detect the mutual match
+    const mutualLike = await Like.findOne({ fromUserId: toUserId, toUserId: fromUserId }).lean();
 
     // G. Mutual Match Formation
     let matchFormed = false;
@@ -524,21 +527,21 @@ async function handleLikeAction(req, res, actionType) {
 
     if (mutualLike) {
       matchFormed = true;
+      const uAStr = fromUserId.toString();
+      const uBStr = toUserId.toString();
+      const normUserA = uAStr < uBStr ? fromUserId : toUserId;
+      const normUserB = uAStr < uBStr ? toUserId : fromUserId;
+
       // conversationId is deterministic — always the same regardless of who liked first
-      conversationId = `conv_${[fromUserId.toString(), toUserId.toString()].sort().join('_')}`;
+      conversationId = `conv_${[uAStr, uBStr].sort().join('_')}`;
 
       // Upsert match (idempotent — safe to call even if match already exists)
       const existingOrNewMatch = await Match.findOneAndUpdate(
-        {
-          $or: [
-            { userA: fromUserId, userB: toUserId },
-            { userA: toUserId, userB: fromUserId }
-          ]
-        },
+        { userA: normUserA, userB: normUserB },
         {
           $setOnInsert: {
-            userA: fromUserId.toString() < toUserId.toString() ? fromUserId : toUserId,
-            userB: fromUserId.toString() < toUserId.toString() ? toUserId : fromUserId,
+            userA: normUserA,
+            userB: normUserB,
             conversationId,
             matchedAt: new Date()
           }
@@ -561,15 +564,12 @@ async function handleLikeAction(req, res, actionType) {
     }
 
     // H. Broadcast real-time WebSocket notification events via Chat Service
-
     try {
       const chatUrl = process.env.CHAT_SERVICE_URL || 'http://localhost:5001';
       const payload = matchFormed
         ? { event: 'new_match', userA: fromUserId.toString(), userB: toUserId.toString(), conversationId, timestamp: new Date() }
         : { event: 'new_like', toUserId: toUserId.toString(), fromUserId: fromUserId.toString(), type: actionType, timestamp: new Date() };
 
-      const http = require('http');
-      const https = require('https');
       const targetUrl = new URL(`${chatUrl}/internal/notify`);
       const transport = targetUrl.protocol === 'https:' ? https : http;
       const dataString = JSON.stringify(payload);
@@ -646,10 +646,14 @@ async function handleDislikeAction(req, res) {
 async function getReceivedLikes(req, res) {
   try {
     const userId = new mongoose.Types.ObjectId(req.user.id);
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).lean();
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const skip = (page - 1) * limit;
 
     // Determine active subscription status
     const now = new Date();
@@ -670,13 +674,12 @@ async function getReceivedLikes(req, res) {
     // Exclude blocked & already matched users
     const excludedIds = [...blockedUserIds, ...matchedUserIds];
 
-    // 3. Find incoming likes sent TO this user
-    const incomingLikes = await Like.find({
+    const filter = {
       toUserId: userId,
       fromUserId: { $nin: excludedIds }
-    }).sort({ createdAt: -1 }).lean();
+    };
 
-    const totalLikesCount = incomingLikes.length;
+    const totalLikesCount = await Like.countDocuments(filter);
 
     // If free tier, return total count only — keep profiles hidden/locked
     if (!isSubActive) {
@@ -686,11 +689,20 @@ async function getReceivedLikes(req, res) {
         isLocked: true,
         tier: user.tier || 'free',
         message: 'Upgrade to Silver or Gold Pass to unlock and see full profiles of users who liked you!',
-        likers: []
+        likers: [],
+        page,
+        limit
       });
     }
 
-    // If Silver or Gold subscription active, batch-fetch all liker profiles in ONE query
+    // 3. Find incoming likes sent TO this user with pagination
+    const incomingLikes = await Like.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // Batch-fetch all liker profiles in ONE query
     const likerIds = incomingLikes.map(l => l.fromUserId);
     const likerUsers = await User.find({ _id: { $in: likerIds }, banned: false })
       .select('name age height school course gender pictures bio hobbies skills lookingFor sexualOrientation identityStatus badges tier subscriptionExpiresAt religion beliefs customDesignId')
@@ -712,11 +724,13 @@ async function getReceivedLikes(req, res) {
       .filter(Boolean);
 
     res.json({
-      totalLikesCount: validLikers.length,
+      totalLikesCount,
       hasAccess: true,
       isLocked: false,
       tier: user.tier,
-      likers: validLikers
+      likers: validLikers,
+      page,
+      limit
     });
   } catch (err) {
     console.error(err);
@@ -744,8 +758,8 @@ async function getGivenLikes(req, res) {
     // 1. Get blocked user IDs (both directions)
     const blocks = await Block.find({
       $or: [{ blockerId: userId }, { blockedId: userId }]
-    });
-    const blockedUserIds = blocks.map(b => b.blockerId.equals(userId) ? b.blockedId : b.blockerId);
+    }).lean();
+    const blockedUserIds = blocks.map(b => String(b.blockerId) === String(userId) ? b.blockedId : b.blockerId);
 
     // 2. Query sent likes
     const filter = {
@@ -757,7 +771,8 @@ async function getGivenLikes(req, res) {
       Like.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Like.countDocuments(filter)
     ]);
 
@@ -809,9 +824,9 @@ router.get('/matches', authRequired, async (req, res) => {
     // Get all block relationships for this user
     const blocks = await Block.find({
       $or: [{ blockerId: userId }, { blockedId: userId }]
-    });
+    }).lean();
     const blockedSet = new Set(blocks.map(b =>
-      b.blockerId.equals(userId) ? b.blockedId.toString() : b.blockerId.toString()
+      String(b.blockerId) === String(userId) ? b.blockedId.toString() : b.blockerId.toString()
     ));
 
     const matches = await Match.find({
