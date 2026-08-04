@@ -41,7 +41,7 @@ jobs:
           node --check api/routes/verification.js
           node --check api/utils/redis.js
           node --check api/utils/uploader.js
-          node scratch/ci_smoke_test.js
+          node api/tests/smoke.test.js
 
       - name: Run Integration Unit Test Suite
         env:
@@ -51,7 +51,7 @@ jobs:
           INTERNAL_NOTIFY_SECRET: ci-internal-secret
         run: |
           cd api
-          npm test --if-present
+          npm test
 
   test-chat:
     name: Chat Service Test Suite
