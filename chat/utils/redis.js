@@ -1,21 +1,53 @@
 const { Redis } = require('@upstash/redis');
 
-const isConfigured = Boolean(
-  process.env.UPSTASH_REDIS_REST_URL &&
-  process.env.UPSTASH_REDIS_REST_TOKEN &&
-  process.env.UPSTASH_REDIS_REST_URL.startsWith('http')
-);
+function resolveCredentials() {
+  let url = process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_URL;
+  let token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.UPSTASH_REDIS_TOKEN;
+
+  const rawUrl = url || process.env.REDIS_URL;
+  if (rawUrl) {
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      try {
+        const parsed = new URL(rawUrl);
+        url = `${parsed.protocol}//${parsed.host}`;
+        if (!token && parsed.password) {
+          token = decodeURIComponent(parsed.password);
+        }
+      } catch {
+        // ignore parse errors
+      }
+    } else if (rawUrl.startsWith('redis://') || rawUrl.startsWith('rediss://')) {
+      try {
+        const parsed = new URL(rawUrl);
+        if (parsed.hostname && parsed.password) {
+          url = `https://${parsed.hostname}`;
+          token = decodeURIComponent(parsed.password);
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }
+
+  const isConfigured = Boolean(url && token && url.startsWith('http'));
+  return { url, token, isConfigured };
+}
+
+const { url, token, isConfigured } = resolveCredentials();
 
 if (!isConfigured) {
   if (process.env.NODE_ENV === 'production') {
-    console.error('WARNING: UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN missing or invalid in production. Redis caching disabled gracefully.');
+    console.error('WARNING: UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN or REDIS_URL missing or invalid in production. Redis caching disabled gracefully.');
   }
 }
 
-const redisClient = isConfigured ? new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-}) : null;
+const redisClient = isConfigured
+  ? new Redis({
+      url,
+      token,
+      automaticDeserialization: false,
+    })
+  : null;
 
 const redis = {
   get: async (key) => {
@@ -44,13 +76,12 @@ const redis = {
     try {
       let opts = {};
       if (options) {
-        if (options.EX) opts.ex = options.EX;
-        if (options.ex) opts.ex = options.ex;
-        if (options.PX) opts.px = options.PX;
-        if (options.px) opts.px = options.px;
+        if (options.EX || options.ex) opts.ex = options.EX || options.ex;
+        if (options.PX || options.px) opts.px = options.PX || options.px;
         if (options.NX || options.nx) opts.nx = true;
       }
-      return await redisClient.set(key, String(value), opts);
+      const valStr = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value);
+      return await redisClient.set(key, valStr, opts);
     } catch (err) {
       console.warn('[CHAT REDIS SET ERR]:', err.message);
       return 'OK';
@@ -152,7 +183,18 @@ const redis = {
   quit: async () => {
     return Promise.resolve();
   },
-  clientStatus: () => ({ isMock: !isConfigured, connected: isConfigured })
+  clientStatus: () => ({
+    isMock: !isConfigured,
+    connected: isConfigured,
+    url: url || null
+  })
 };
+
+// Method aliases for standardization and compatibility
+redis.sadd = redis.sAdd;
+redis.scard = redis.sCard;
+redis.zadd = redis.zAdd;
+redis.zcount = redis.zCount;
+redis.zremrangebyscore = redis.zRemRangeByScore;
 
 module.exports = redis;

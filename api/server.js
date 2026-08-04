@@ -19,8 +19,9 @@ if (process.env.NODE_ENV === 'production') {
   if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET environment variable is required in production');
   if (!process.env.ADMIN_PANEL_ORIGIN) throw new Error('ADMIN_PANEL_ORIGIN environment variable is required in production');
   if (!process.env.APP_ORIGINS) throw new Error('APP_ORIGINS environment variable is required in production');
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    throw new Error('UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required in production');
+  const redisStatus = require('./utils/redis').clientStatus();
+  if (!redisStatus.connected) {
+    throw new Error('Upstash Redis configuration (UPSTASH_REDIS_REST_URL/TOKEN or REDIS_URL) is required in production');
   }
 }
 
