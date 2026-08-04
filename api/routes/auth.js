@@ -159,12 +159,17 @@ router.post('/signup', async (req, res) => {
     // 3. Generate or sanitise username
     let finalUsername = username ? username.toLowerCase().trim() : '';
     if (!finalUsername) {
-      const prefix = cleanEmail.split('@')[0].replace(/[^a-z0-9_.]/g, '');
-      finalUsername = prefix || 'user';
+      const prefix = cleanEmail.split('@')[0].replace(/[^a-z0-9_.]/g, '') || 'user';
+      finalUsername = prefix;
       let exists = await User.exists({ username: finalUsername });
-      while (exists) {
+      let attempts = 0;
+      while (exists && attempts < 5) {
         finalUsername = `${prefix}_${crypto.randomInt(1000, 10000)}`;
         exists = await User.exists({ username: finalUsername });
+        attempts++;
+      }
+      if (exists) {
+        finalUsername = `${prefix}_${Date.now().toString(36)}`;
       }
     }
 
@@ -276,7 +281,7 @@ router.post('/signup', async (req, res) => {
         emailVerified: user.emailVerified,
         identityStatus: user.identityStatus
       },
-      otpSent: isCollegeEmail
+      otpSent: true
     });
   } catch (err) {
     console.error(err);
@@ -428,24 +433,28 @@ router.post('/login', async (req, res) => {
       : await bcrypt.compare(password, dummyHash); // constant-time dummy compare
 
     if (!user || !passwordMatch) {
-      // Only increment failed-login counter on actual failure
-      const bruteKey = `failedLogin:${cleanIdentity}`;
+      // Track failed attempts by user ID if user exists, otherwise by identity
+      const trackerKey = user ? `user:${user._id}` : `identity:${cleanIdentity}`;
+      const bruteKey = `failedLogin:${trackerKey}`;
       const failedAttempts = await redis.incr(bruteKey);
       if (failedAttempts === 1) {
         await redis.expire(bruteKey, BRUTE_FORCE_WINDOW_SECONDS);
       }
 
-      // Flag if threshold exceeded (only when user actually exists)
-      if (user && failedAttempts >= BRUTE_FORCE_THRESHOLD) {
-        const flag = new AccountFlag({
-          userId: user._id,
-          flagType: 'login_brute_force',
-          severity: 'medium',
-          details: { identity: cleanIdentity, attempts: failedAttempts },
-          status: 'open'
-        });
-        await flag.save();
-        await User.findByIdAndUpdate(user._id, { $inc: { openFlagCount: 1 } });
+      // Flag & block if threshold exceeded
+      if (failedAttempts >= BRUTE_FORCE_THRESHOLD) {
+        if (user) {
+          const flag = new AccountFlag({
+            userId: user._id,
+            flagType: 'login_brute_force',
+            severity: 'medium',
+            details: { identity: cleanIdentity, attempts: failedAttempts },
+            status: 'open'
+          });
+          await flag.save();
+          await User.findByIdAndUpdate(user._id, { $inc: { openFlagCount: 1 } });
+        }
+        return res.status(429).json({ error: 'Too many failed login attempts. Please try again later.' });
       }
 
       return res.status(401).json({ error: 'Invalid username/email or password' });
@@ -457,7 +466,8 @@ router.post('/login', async (req, res) => {
     }
 
     // On successful login, clear failed attempts
-    await redis.del(`failedLogin:${cleanIdentity}`);
+    await redis.del(`failedLogin:user:${user._id}`);
+    await redis.del(`failedLogin:identity:${cleanIdentity}`);
 
     // 3. Issue token
     const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
@@ -490,9 +500,9 @@ router.post('/logout', authRequired, (req, res) => {
   res.clearCookie('token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
+    sameSite: 'strict'
   });
-  res.json({ message: 'Logout luxurious' }); // wait, logout successful is better
+  res.json({ message: 'Logout successful' });
 });
 
 // POST /api/auth/forgot-password
@@ -531,10 +541,9 @@ router.post('/forgot-password', async (req, res) => {
     user.resetPasswordExpires = Date.now() + 600000; // 10 minutes (600,000 ms)
     await user.save();
 
-    // Get backend base URL dynamically (works on local, render, staging, etc.)
-    const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
-    const host = req.get('host');
-    const resetLink = `${protocol}://${host}/api/auth/reset-password?token=${token}&email=${encodeURIComponent(cleanEmail)}`;
+    // Get backend base URL dynamically (or prefer configured APP_URL env variable)
+    const baseUrl = process.env.APP_URL || `${req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http')}://${req.get('host')}`;
+    const resetLink = `${baseUrl}/api/auth/reset-password?token=${token}&email=${encodeURIComponent(cleanEmail)}`;
 
     // Send email with reset link via Resend emailService pool
     const subject = '🔑 Reset Your FRND Password';
@@ -609,7 +618,8 @@ router.post('/forgot-password', async (req, res) => {
 // Serves a beautiful, mobile-friendly HTML form to reset the password directly in the browser.
 router.get('/reset-password', async (req, res) => {
   try {
-    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'nonce-rpx123'; style-src 'self' 'unsafe-inline'");
+    const nonce = crypto.randomBytes(16).toString('base64');
+    res.setHeader("Content-Security-Policy", `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'`);
     res.send(`
 <!DOCTYPE html>
 <html lang="en">
@@ -822,7 +832,7 @@ router.get('/reset-password', async (req, res) => {
     </div>
   </div>
 
-  <script>
+  <script nonce="${nonce}">
     const form = document.getElementById('reset-form');
     const submitBtn = document.getElementById('submit-btn');
     const errorAlert = document.getElementById('error-alert');
@@ -961,6 +971,7 @@ router.post('/reset-password', async (req, res) => {
     user.passwordHash = await bcrypt.hash(newPassword, salt);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+    user.passwordChangedAt = new Date();
     await user.save();
 
     res.json({ message: 'Your password has been reset successfully. You can now log in.' });

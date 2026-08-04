@@ -1,8 +1,14 @@
 const { Redis } = require('@upstash/redis');
 
+if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('FATAL: UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN environment variables missing in production mode.');
+  }
+}
+
 const redisClient = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL || 'https://fluent-wildcat-167213.upstash.io',
-  token: process.env.UPSTASH_REDIS_REST_TOKEN || 'gQAAAAAAAo0tAAIgcDJjYjNhZDVjNzBlZTQ0NGY4YWQxYjc5NjdmODNiMjY1Yw',
+  url: process.env.UPSTASH_REDIS_REST_URL || '',
+  token: process.env.UPSTASH_REDIS_REST_TOKEN || '',
 });
 
 const redis = {

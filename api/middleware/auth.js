@@ -3,6 +3,10 @@ const Admin = require('../models/Admin');
 const User = require('../models/User');
 const redis = require('../utils/redis');
 
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  console.error('FATAL: JWT_SECRET environment variable is missing in production mode.');
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-in-production';
 
 // Regular user authentication middleware (via HTTP-only cookie or Authorization header fallback)
@@ -13,9 +17,13 @@ const authRequired = async (req, res, next) => {
     // A. Try reading cookie
     const cookieHeader = req.headers.cookie;
     if (cookieHeader) {
-      const tokenCookie = cookieHeader.split(';').map(c => c.trim()).find(row => row.startsWith('token='));
-      if (tokenCookie) {
-        token = tokenCookie.substring(6);
+      const cookies = cookieHeader.split(';');
+      for (const cookie of cookies) {
+        const parts = cookie.trim().split('=');
+        if (parts[0] === 'token' && parts.length >= 2) {
+          token = parts.slice(1).join('=');
+          break;
+        }
       }
     }
 
@@ -38,16 +46,34 @@ const authRequired = async (req, res, next) => {
       return res.status(403).json({ error: 'Forbidden: admin account cannot access user routes' });
     }
 
-    // Fast ban check using Redis cache, falling back to Mongo
+    // Fast ban & password change check using Redis cache, falling back to Mongo
     const banKey = `banned:${decoded.id}`;
-    let isBanned = await redis.get(banKey);
+    let isBanned = null;
+    try {
+      isBanned = await redis.get(banKey);
+    } catch (e) {
+      // Redis fallback
+    }
+
     if (isBanned === null || isBanned === undefined) {
-      const user = await User.findById(decoded.id).select('banned').lean();
+      const user = await User.findById(decoded.id).select('banned passwordChangedAt').lean();
       if (!user) {
         return res.status(401).json({ error: 'User account not found' });
       }
+
+      if (user.passwordChangedAt && decoded.iat) {
+        const passwordChangedTime = Math.floor(new Date(user.passwordChangedAt).getTime() / 1000);
+        if (decoded.iat < passwordChangedTime) {
+          return res.status(401).json({ error: 'Password was recently changed. Please log in again.' });
+        }
+      }
+
       isBanned = user.banned ? '1' : '0';
-      await redis.set(banKey, isBanned, { EX: 300 });
+      try {
+        await redis.set(banKey, isBanned, { EX: 300 });
+      } catch (e) {
+        // Redis cache write fallback
+      }
     }
 
     if (isBanned === '1' || isBanned === true) {
