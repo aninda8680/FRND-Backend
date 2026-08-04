@@ -421,10 +421,27 @@ router.post('/login', async (req, res) => {
 
     const cleanIdentity = identity.trim().toLowerCase();
 
-    // 1. Find user first
+    // 0. Pre-bcrypt rate-limit check: block locked identities before burning heavy CPU cycles
+    const bruteIdentityKey = `failedLogin:identity:${cleanIdentity}`;
+    const initialAttemptsStr = await redis.get(bruteIdentityKey).catch(() => null);
+    const initialAttempts = initialAttemptsStr ? parseInt(initialAttemptsStr, 10) : 0;
+    if (initialAttempts >= BRUTE_FORCE_THRESHOLD) {
+      return res.status(429).json({ error: 'Too many failed login attempts. Please try again in 15 minutes.' });
+    }
+
+    // 1. Find user
     const user = await User.findOne({
       $or: [{ email: cleanIdentity }, { username: cleanIdentity }]
     });
+
+    if (user) {
+      const bruteUserKey = `failedLogin:user:${user._id}`;
+      const userAttemptsStr = await redis.get(bruteUserKey).catch(() => null);
+      const userAttempts = userAttemptsStr ? parseInt(userAttemptsStr, 10) : 0;
+      if (userAttempts >= BRUTE_FORCE_THRESHOLD) {
+        return res.status(429).json({ error: 'Too many failed login attempts. Please try again in 15 minutes.' });
+      }
+    }
 
     // 2. Compare password (always run bcrypt to prevent timing attacks)
     const dummyHash = '$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ01234';
@@ -454,7 +471,7 @@ router.post('/login', async (req, res) => {
           await flag.save();
           await User.findByIdAndUpdate(user._id, { $inc: { openFlagCount: 1 } });
         }
-        return res.status(429).json({ error: 'Too many failed login attempts. Please try again later.' });
+        return res.status(429).json({ error: 'Too many failed login attempts. Please try again in 15 minutes.' });
       }
 
       return res.status(401).json({ error: 'Invalid username/email or password' });
@@ -466,8 +483,7 @@ router.post('/login', async (req, res) => {
     }
 
     // On successful login, clear failed attempts
-    await redis.del(`failedLogin:user:${user._id}`);
-    await redis.del(`failedLogin:identity:${cleanIdentity}`);
+    await redis.del(`failedLogin:user:${user._id}`, `failedLogin:identity:${cleanIdentity}`).catch(() => {});
 
     // 3. Issue token
     const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
@@ -496,7 +512,41 @@ router.post('/login', async (req, res) => {
 });
 
 // POST /api/auth/logout
-router.post('/logout', authRequired, (req, res) => {
+router.post('/logout', authRequired, async (req, res) => {
+  try {
+    let token = req.token;
+    if (!token) {
+      const cookieHeader = req.headers.cookie;
+      if (cookieHeader) {
+        const cookies = cookieHeader.split(';');
+        for (const cookie of cookies) {
+          const parts = cookie.trim().split('=');
+          if (parts[0] === 'token' && parts.length >= 2) {
+            token = parts.slice(1).join('=');
+            break;
+          }
+        }
+      }
+      if (!token) {
+        const authHeader = req.headers.authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          token = authHeader.split(' ')[1];
+        }
+      }
+    }
+
+    if (token) {
+      const decoded = jwt.decode(token);
+      if (decoded && decoded.exp) {
+        const remainingSeconds = Math.max(1, Math.ceil((decoded.exp * 1000 - Date.now()) / 1000));
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        await redis.set(`blacklist:${tokenHash}`, '1', { EX: remainingSeconds }).catch(() => {});
+      }
+    }
+  } catch (err) {
+    // Non-blocking logout error
+  }
+
   res.clearCookie('token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

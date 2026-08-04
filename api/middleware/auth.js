@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const Admin = require('../models/Admin');
 const User = require('../models/User');
 const redis = require('../utils/redis');
@@ -40,6 +41,14 @@ const authRequired = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
+    req.token = token;
+
+    // Check if token has been blacklisted upon logout
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const isBlacklisted = await redis.get(`blacklist:${tokenHash}`).catch(() => null);
+    if (isBlacklisted) {
+      return res.status(401).json({ error: 'Session invalidated. Please log in again.' });
+    }
 
     // Ensure this is not an admin token being used for user endpoints
     if (decoded.aud === 'admin-panel') {

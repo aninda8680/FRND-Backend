@@ -254,8 +254,8 @@ async function verifySubscriptionHandler(req, res) {
       { new: true }
     ).select('-passwordHash');
 
-    // Invalidate discovery cache
-    await redis.del(`discover:${req.user.id}`);
+    // Invalidate discovery & profile caches for updated subscription status
+    await redis.del(`discover:${req.user.id}`, `user:profile:${req.user.id}`).catch(() => {});
 
     res.json({
       message: `🎉 ${TIER_CONFIG[payment.tier].name} activated! Autopay will automatically renew every 28 days.`,
@@ -377,6 +377,7 @@ router.post('/webhook', async (req, res) => {
             user.razorpayPaymentId = payload.payment.entity.id;
           }
           await user.save();
+          await redis.del(`discover:${user._id}`, `user:profile:${user._id}`).catch(() => {});
 
           // Save audit payment log
           const payment = new Payment({
@@ -435,6 +436,7 @@ router.get('/subscription-status', authRequired, async (req, res) => {
           },
           { new: true }
         ).select('tier isPremium subscriptionExpiresAt razorpaySubscriptionId autopayStatus');
+        await redis.del(`discover:${req.user.id}`, `user:profile:${req.user.id}`).catch(() => {});
       }
     }
 

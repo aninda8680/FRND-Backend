@@ -273,9 +273,20 @@ const DEFAULT_ONBOARDING_CONFIG = {
   ]
 };
 
+const redis = require('./redis');
+
 async function getOrInitOnboardingConfig() {
   try {
-    let config = await OnboardingConfig.findOne({ key: 'default_onboarding_config' });
+    const cachedConfig = await redis.get('config:onboarding');
+    if (cachedConfig) {
+      try {
+        return typeof cachedConfig === 'string' ? JSON.parse(cachedConfig) : cachedConfig;
+      } catch (e) {
+        // Fallback to DB fetch if parse fails
+      }
+    }
+
+    let config = await OnboardingConfig.findOne({ key: 'default_onboarding_config' }).lean();
     if (!config) {
       config = new OnboardingConfig({
         key: 'default_onboarding_config',
@@ -283,7 +294,10 @@ async function getOrInitOnboardingConfig() {
         sections: DEFAULT_ONBOARDING_CONFIG.sections
       });
       await config.save();
+      config = config.toObject();
     }
+
+    await redis.set('config:onboarding', JSON.stringify(config), { EX: 3600 }).catch(() => {});
     return config;
   } catch (err) {
     console.error('[ONBOARDING CONFIG FETCH ERROR]:', err);

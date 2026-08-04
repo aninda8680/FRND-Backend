@@ -104,6 +104,7 @@ router.post('/upload/picture', authRequired, uploadPicture.single('picture'), ha
         }
         user.pictures.push(picture);
         await user.save();
+        await redis.del(`discover:${req.user.id}`, `user:profile:${req.user.id}`).catch(() => {});
       }
     }
 
@@ -123,10 +124,23 @@ router.post('/upload/picture', authRequired, uploadPicture.single('picture'), ha
 // GET /api/users/me
 router.get('/users/me', authRequired, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-passwordHash');
+    const cacheKey = `user:profile:${req.user.id}`;
+    const cachedProfile = await redis.get(cacheKey).catch(() => null);
+    if (cachedProfile) {
+      try {
+        const parsed = typeof cachedProfile === 'string' ? JSON.parse(cachedProfile) : cachedProfile;
+        return res.json({ user: parsed });
+      } catch (e) {
+        // Fallback to DB fetch if parse fails
+      }
+    }
+
+    const user = await User.findById(req.user.id).select('-passwordHash').lean();
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    await redis.set(cacheKey, JSON.stringify(user), { EX: 300 }).catch(() => {});
     res.json({ user });
   } catch (err) {
     console.error(err);
@@ -252,8 +266,8 @@ router.put('/users/me', authRequired, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Invalidate discovery cache for this user
-    await redis.del(`discover:${req.user.id}`);
+    // Invalidate discovery & profile caches for this user
+    await redis.del(`discover:${req.user.id}`, `user:profile:${req.user.id}`).catch(() => {});
 
     res.json({ message: 'Profile updated successfully', user });
   } catch (err) {
@@ -287,7 +301,7 @@ router.put('/users/me/design', authRequired, async (req, res) => {
     }
 
     await user.save();
-    await redis.del(`discover:${req.user.id}`);
+    await redis.del(`discover:${req.user.id}`, `user:profile:${req.user.id}`).catch(() => {});
 
     res.json({
       message: user.customDesignId ? 'Custom profile design set successfully' : 'Custom design reset to default',
