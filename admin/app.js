@@ -57,15 +57,27 @@ const navItems = document.querySelectorAll('.nav-item');
 const tabPanes = document.querySelectorAll('.tab-pane, .tab-content');
 const tabTitle = document.getElementById('tab-title');
 
+// Mobile Sidebar Controls & Backdrop
+const sidebar = document.getElementById('sidebar');
+const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+const sidebarCloseBtn = document.getElementById('sidebar-close-btn');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+const sectionRefreshBtn = document.getElementById('section-refresh-btn');
+const refreshIcon = document.getElementById('refresh-icon');
+
+function openMobileSidebar() {
+  if (sidebar) sidebar.classList.add('mobile-open');
+  if (sidebarBackdrop) sidebarBackdrop.classList.remove('hidden');
+}
+
+function closeMobileSidebar() {
+  if (sidebar) sidebar.classList.remove('mobile-open');
+  if (sidebarBackdrop) sidebarBackdrop.classList.add('hidden');
+}
+
 // Initialize state
 let token = localStorage.getItem('adminToken');
 let email = localStorage.getItem('adminEmail');
-
-if (token) {
-  showDashboard();
-} else {
-  showLogin();
-}
 
 // ------------------------------------------------------------------
 // AUTHENTICATION FLOWS
@@ -159,24 +171,6 @@ function showLogin() {
   dashboardContainer.classList.add('hidden');
 }
 
-// Mobile Sidebar Controls & Backdrop
-const sidebar = document.getElementById('sidebar');
-const mobileMenuBtn = document.getElementById('mobile-menu-btn');
-const sidebarCloseBtn = document.getElementById('sidebar-close-btn');
-const sidebarBackdrop = document.getElementById('sidebar-backdrop');
-const sectionRefreshBtn = document.getElementById('section-refresh-btn');
-const refreshIcon = document.getElementById('refresh-icon');
-
-function openMobileSidebar() {
-  if (sidebar) sidebar.classList.add('mobile-open');
-  if (sidebarBackdrop) sidebarBackdrop.classList.remove('hidden');
-}
-
-function closeMobileSidebar() {
-  if (sidebar) sidebar.classList.remove('mobile-open');
-  if (sidebarBackdrop) sidebarBackdrop.classList.add('hidden');
-}
-
 if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', openMobileSidebar);
 if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', closeMobileSidebar);
 if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', closeMobileSidebar);
@@ -248,6 +242,13 @@ navItems.forEach(item => {
     switchTab(tabId);
   });
 });
+
+// Initial dashboard load state trigger
+if (token) {
+  showDashboard();
+} else {
+  showLogin();
+}
 
 // User tier filter event listener
 const userTierFilter = document.getElementById('user-tier-filter');
