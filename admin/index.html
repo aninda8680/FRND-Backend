@@ -74,14 +74,18 @@
 
   <!-- 2. MAIN DASHBOARD INTERFACE -->
   <div id="dashboard-container" class="dashboard-wrapper hidden">
+    <!-- Mobile Sidebar Backdrop Overlay -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop hidden"></div>
+
     <!-- Sidebar -->
-    <aside class="sidebar">
+    <aside id="sidebar" class="sidebar">
       <div class="sidebar-header">
         <div class="logo-mark">A</div>
         <div class="brand-info">
           <h3>Admin Panel</h3>
           <span id="admin-email-display">admin@domain.edu</span>
         </div>
+        <button id="sidebar-close-btn" class="sidebar-close-btn" aria-label="Close Sidebar">&times;</button>
       </div>
       <nav class="sidebar-nav">
         <button class="nav-item active" data-tab="stats-tab">
@@ -126,9 +130,21 @@
     <!-- Main Content Area -->
     <main class="main-content">
       <header class="content-header">
-        <h1 id="tab-title">Revenue & Analytics</h1>
-        <div id="connection-indicator" class="status-indicator">
-          <span class="dot connected"></span> Connected
+        <div class="header-title-group">
+          <button id="mobile-menu-btn" class="mobile-menu-toggle" aria-label="Toggle Navigation">
+            <span class="bar"></span>
+            <span class="bar"></span>
+            <span class="bar"></span>
+          </button>
+          <h1 id="tab-title">Revenue & Analytics</h1>
+        </div>
+        <div class="header-actions">
+          <button id="section-refresh-btn" class="btn secondary sm refresh-btn" title="Refresh current section data">
+            <span id="refresh-icon" class="refresh-icon">🔄</span> <span class="refresh-text">Refresh</span>
+          </button>
+          <div id="connection-indicator" class="status-indicator">
+            <span class="dot connected"></span> <span class="status-text">Connected</span>
+          </div>
         </div>
       </header>
 

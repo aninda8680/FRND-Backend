@@ -159,30 +159,93 @@ function showLogin() {
   dashboardContainer.classList.add('hidden');
 }
 
+// Mobile Sidebar Controls & Backdrop
+const sidebar = document.getElementById('sidebar');
+const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+const sidebarCloseBtn = document.getElementById('sidebar-close-btn');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+const sectionRefreshBtn = document.getElementById('section-refresh-btn');
+const refreshIcon = document.getElementById('refresh-icon');
+
+function openMobileSidebar() {
+  if (sidebar) sidebar.classList.add('mobile-open');
+  if (sidebarBackdrop) sidebarBackdrop.classList.remove('hidden');
+}
+
+function closeMobileSidebar() {
+  if (sidebar) sidebar.classList.remove('mobile-open');
+  if (sidebarBackdrop) sidebarBackdrop.classList.add('hidden');
+}
+
+if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', openMobileSidebar);
+if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', closeMobileSidebar);
+if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', closeMobileSidebar);
+
+// Section Refresh Button Handler
+if (sectionRefreshBtn) {
+  sectionRefreshBtn.addEventListener('click', async () => {
+    const activeTabId = localStorage.getItem('adminActiveTab') || 'stats-tab';
+    if (refreshIcon) refreshIcon.classList.add('spinning');
+    try {
+      await loadTabContent(activeTabId);
+    } finally {
+      setTimeout(() => {
+        if (refreshIcon) refreshIcon.classList.remove('spinning');
+      }, 500);
+    }
+  });
+}
+
+// Tab Switching & Persistence
+function switchTab(targetTabId) {
+  const activeTabId = targetTabId || localStorage.getItem('adminActiveTab') || 'stats-tab';
+  let targetNavItem = null;
+
+  navItems.forEach(item => {
+    if (item.getAttribute('data-tab') === activeTabId) {
+      item.classList.add('active');
+      targetNavItem = item;
+    } else {
+      item.classList.remove('active');
+    }
+  });
+
+  if (!targetNavItem && navItems.length > 0) {
+    targetNavItem = navItems[0];
+    targetNavItem.classList.add('active');
+  }
+
+  const effectiveTabId = targetNavItem ? targetNavItem.getAttribute('data-tab') : 'stats-tab';
+
+  tabPanes.forEach(pane => {
+    if (pane.id === effectiveTabId) {
+      pane.classList.add('active');
+    } else {
+      pane.classList.remove('active');
+    }
+  });
+
+  if (targetNavItem) {
+    tabTitle.innerText = targetNavItem.innerText.replace(/[^\w\s]/g, '').trim();
+  }
+
+  localStorage.setItem('adminActiveTab', effectiveTabId);
+  closeMobileSidebar();
+  loadTabContent(effectiveTabId);
+}
+
 function showDashboard() {
   loginContainer.classList.add('hidden');
   dashboardContainer.classList.remove('hidden');
   adminEmailDisplay.innerText = email;
-  loadTabContent('stats-tab');
+  switchTab(); // Restores last active tab on refresh!
 }
 
-// Tab navigation
+// Tab navigation click event
 navItems.forEach(item => {
   item.addEventListener('click', () => {
-    navItems.forEach(nav => nav.classList.remove('active'));
-    item.classList.add('active');
-    
     const tabId = item.getAttribute('data-tab');
-    tabPanes.forEach(pane => {
-      if (pane.id === tabId) {
-        pane.classList.add('active');
-      } else {
-        pane.classList.remove('active');
-      }
-    });
-
-    tabTitle.innerText = item.innerText.replace(/[^\w\s]/g, '').trim();
-    loadTabContent(tabId);
+    switchTab(tabId);
   });
 });
 
