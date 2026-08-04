@@ -61,15 +61,21 @@ async function logAdminAction(adminId, actionType, targetUserId, details) {
 router.get('/stats', adminAuthRequired, async (req, res) => {
   try {
     const statsCacheKey = 'admin:stats:summary';
-    const cachedStats = await redis.get(statsCacheKey);
-    if (cachedStats) {
-      try {
-        return res.json(JSON.parse(cachedStats));
-      } catch (_) {
-        // Fallback to fresh query if JSON parse fails
+
+    // 1. Safe Redis Cache Lookup
+    try {
+      const cachedStats = await redis.get(statsCacheKey);
+      if (cachedStats) {
+        const parsed = typeof cachedStats === 'string' ? JSON.parse(cachedStats) : cachedStats;
+        if (parsed && typeof parsed === 'object') {
+          return res.json(parsed);
+        }
       }
+    } catch (cacheErr) {
+      console.warn('[ADMIN STATS] Redis cache lookup error (falling back to DB):', cacheErr.message);
     }
 
+    // 2. Resilient DB Aggregations (Individual catch fallbacks prevent whole-dashboard 500s)
     const [
       userStatsAgg,
       likeStatsAgg,
@@ -89,7 +95,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
         {
           $facet: {
             totalUsers: [{ $count: 'count' }],
-            freeUsers: [{ $match: { $or: [{ tier: 'free' }, { tier: { $exists: false } }] } }, { $count: 'count' }],
+            freeUsers: [{ $match: { $or: [{ tier: 'free' }, { tier: { $exists: false } }, { tier: null }] } }, { $count: 'count' }],
             silverUsers: [{ $match: { tier: 'silver' } }, { $count: 'count' }],
             goldUsers: [{ $match: { tier: 'gold' } }, { $count: 'count' }],
             maleUsers: [{ $match: { gender: 'male' } }, { $count: 'count' }],
@@ -100,7 +106,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
             bannedUsers: [{ $match: { banned: true } }, { $count: 'count' }]
           }
         }
-      ]),
+      ]).catch((err) => { console.error('[STATS DB ERR] User aggregate:', err.message); return [{}]; }),
       Like.aggregate([
         {
           $facet: {
@@ -109,7 +115,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
             superlikes: [{ $match: { type: 'superlike' } }, { $count: 'count' }]
           }
         }
-      ]),
+      ]).catch((err) => { console.error('[STATS DB ERR] Like aggregate:', err.message); return [{}]; }),
       AccountFlag.aggregate([
         {
           $facet: {
@@ -119,16 +125,16 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
             lowFlags: [{ $match: { status: 'open', severity: 'low' } }, { $count: 'count' }]
           }
         }
-      ]),
-      IdentityVerificationRequest.countDocuments({ status: 'pending' }),
-      Dislike.countDocuments({}),
-      Match.countDocuments({}),
-      Message.countDocuments({}),
-      AnonymousPost.countDocuments({}),
-      Feedback.countDocuments({}),
-      Waitlist.countDocuments({}),
-      CareerApplication.countDocuments({}),
-      Report.countDocuments({}),
+      ]).catch((err) => { console.error('[STATS DB ERR] Flag aggregate:', err.message); return [{}]; }),
+      IdentityVerificationRequest.countDocuments({ status: 'pending' }).catch(() => 0),
+      Dislike.countDocuments({}).catch(() => 0),
+      Match.countDocuments({}).catch(() => 0),
+      Message.countDocuments({}).catch(() => 0),
+      AnonymousPost.countDocuments({}).catch(() => 0),
+      Feedback.countDocuments({}).catch(() => 0),
+      Waitlist.countDocuments({}).catch(() => 0),
+      CareerApplication.countDocuments({}).catch(() => 0),
+      Report.countDocuments({}).catch(() => 0),
       Payment.aggregate([
         { $match: { status: { $in: ['paid', 'active'] } } },
         {
@@ -147,7 +153,12 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
                   {
                     $or: [
                       { $eq: ['$status', 'active'] },
-                      { $gt: ['$expiresAt', new Date()] }
+                      {
+                        $and: [
+                          { $ne: ['$expiresAt', null] },
+                          { $gt: ['$expiresAt', new Date()] }
+                        ]
+                      }
                     ]
                   },
                   1,
@@ -158,7 +169,7 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
             totalTransactionsCount: { $sum: 1 }
           }
         }
-      ])
+      ]).catch((err) => { console.error('[STATS DB ERR] Payment aggregate:', err.message); return []; })
     ]);
 
     const getFacetCount = (agg, key) => (agg && agg[0] && agg[0][key] && agg[0][key][0] && agg[0][key][0].count) || 0;
@@ -255,7 +266,11 @@ router.get('/stats', adminAuthRequired, async (req, res) => {
       }
     };
 
-    await redis.set(statsCacheKey, JSON.stringify(statsPayload), { EX: 300 }).catch(() => {});
+    try {
+      await redis.set(statsCacheKey, JSON.stringify(statsPayload), { EX: 300 });
+    } catch (setErr) {
+      console.warn('[ADMIN STATS] Redis set cache failed:', setErr.message);
+    }
 
     res.json(statsPayload);
   } catch (err) {
