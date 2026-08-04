@@ -711,13 +711,94 @@ async function fetchFeedback() {
 async function fetchWaitlist() {
   const data = await apiFetch('/waitlist');
   const tbody = document.getElementById('waitlist-table-body');
-  
-  tbody.innerHTML = '';
-  if (!data || !data.entries) return;
+
+  if (tbody) tbody.innerHTML = '';
+  if (!data) return;
+
+  // 1. Populate Stats Summary Cards
+  const viz = data.visualizer || {};
+  const totalCount = viz.totalEntries || data.total || 0;
+  const collegeCount = viz.collegeVsGeneral?.collegeCount || 0;
+  const generalCount = viz.collegeVsGeneral?.generalCount || 0;
+  const topCity = viz.topCities?.[0]?.city || 'N/A';
+
+  const statTotalEl = document.getElementById('waitlist-stat-total');
+  const statCollegeEl = document.getElementById('waitlist-stat-college');
+  const statGeneralEl = document.getElementById('waitlist-stat-general');
+  const statCityEl = document.getElementById('waitlist-stat-top-city');
+
+  if (statTotalEl) statTotalEl.textContent = totalCount.toLocaleString();
+  if (statCollegeEl) statCollegeEl.textContent = collegeCount.toLocaleString();
+  if (statGeneralEl) statGeneralEl.textContent = generalCount.toLocaleString();
+  if (statCityEl) statCityEl.textContent = topCity;
+
+  // 2. Render Data Visualizer Charts
+  if (viz.dailyTimeline && Array.isArray(viz.dailyTimeline)) {
+    renderChart('chart-waitlist-timeline', 'line', {
+      labels: viz.dailyTimeline.map(t => t.date),
+      datasets: [{
+        label: 'Daily Signups',
+        data: viz.dailyTimeline.map(t => t.count),
+        borderColor: '#818cf8',
+        backgroundColor: 'rgba(129, 140, 248, 0.15)',
+        fill: true,
+        tension: 0.3
+      }]
+    });
+  }
+
+  renderChart('chart-waitlist-type', 'doughnut', {
+    labels: ['Campus / College Email', 'General Email'],
+    datasets: [{
+      data: [collegeCount, generalCount],
+      backgroundColor: ['#10b981', '#64748b']
+    }]
+  });
+
+  if (viz.topDomains && Array.isArray(viz.topDomains)) {
+    renderChart('chart-waitlist-domains', 'bar', {
+      labels: viz.topDomains.map(d => d.domain),
+      datasets: [{
+        label: 'Signups',
+        data: viz.topDomains.map(d => d.count),
+        backgroundColor: '#f59e0b',
+        borderRadius: 4
+      }]
+    }, {
+      indexAxis: 'y'
+    });
+  }
+
+  if (viz.platforms && Array.isArray(viz.platforms)) {
+    renderChart('chart-waitlist-platforms', 'bar', {
+      labels: viz.platforms.map(p => p.name || 'Unknown'),
+      datasets: [{
+        label: 'Users',
+        data: viz.platforms.map(p => p.count),
+        backgroundColor: '#3b82f6',
+        borderRadius: 4
+      }]
+    });
+  }
+
+  if (viz.topCities && Array.isArray(viz.topCities)) {
+    renderChart('chart-waitlist-cities', 'bar', {
+      labels: viz.topCities.map(c => c.city),
+      datasets: [{
+        label: 'Signups',
+        data: viz.topCities.map(c => c.count),
+        backgroundColor: '#8b5cf6',
+        borderRadius: 4
+      }]
+    });
+  }
+
+  // 3. Populate Data Table Rows
+  if (!tbody || !data.entries) return;
 
   data.entries.forEach(entry => {
     const tr = document.createElement('tr');
-    
+
     // Format location nicely
     const locationParts = [];
     if (entry.city) locationParts.push(entry.city.trim());
