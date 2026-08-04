@@ -18,7 +18,8 @@ const redis = {
   mget: async (...keys) => {
     const flatKeys = keys.flat().filter(Boolean);
     if (flatKeys.length === 0) return [];
-    return await redisClient.mget(...flatKeys);
+    const res = await redisClient.mget(...flatKeys);
+    return Array.isArray(res) ? res : [res];
   },
   set: async (key, value, options) => {
     let opts = {};
@@ -31,8 +32,10 @@ const redis = {
     }
     return await redisClient.set(key, String(value), opts);
   },
-  del: async (key) => {
-    return await redisClient.del(key);
+  del: async (...keys) => {
+    const flatKeys = keys.flat().filter(Boolean);
+    if (flatKeys.length === 0) return 0;
+    return await redisClient.del(...flatKeys);
   },
   incr: async (key) => {
     return await redisClient.incr(key);

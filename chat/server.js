@@ -132,13 +132,13 @@ io.on('connection', async (socket) => {
 
       const blocks = await Block.find({
         $or: [{ blockerId: userId }, { blockedId: userId }]
-      });
-      const blockedUserIds = blocks.map(b => b.blockerId.equals(userId) ? b.blockedId : b.blockerId);
-      const matches = await Match.find({ $or: [{ userA: userId }, { userB: userId }] });
-      const matchedUserIds = matches.map(m => m.userA.equals(userId) ? m.userB : m.userA);
+      }).lean();
+      const blockedUserIds = blocks.map(b => String(b.blockerId) === String(userId) ? b.blockedId : b.blockerId);
+      const matches = await Match.find({ $or: [{ userA: userId }, { userB: userId }] }).lean();
+      const matchedUserIds = matches.map(m => String(m.userA) === String(userId) ? m.userB : m.userA);
 
       const excludedIds = [...blockedUserIds, ...matchedUserIds];
-      const incomingLikes = await Like.find({ toUserId: userId, fromUserId: { $nin: excludedIds } }).sort({ createdAt: -1 });
+      const incomingLikes = await Like.find({ toUserId: userId, fromUserId: { $nin: excludedIds } }).sort({ createdAt: -1 }).lean();
 
       const totalLikesCount = incomingLikes.length;
 
@@ -195,7 +195,7 @@ io.on('connection', async (socket) => {
       if (!conversationId || typeof conversationId !== 'string') return;
 
       // Security check: ensure user is part of the match conversation
-      const match = await Match.findOne({ conversationId });
+      const match = await Match.findOne({ conversationId }).lean();
       if (!match) {
         return socket.emit('chat_error', { error: 'Conversation not found' });
       }
@@ -227,7 +227,7 @@ io.on('connection', async (socket) => {
       }
 
       // Security Check: verify user belongs to this conversation
-      const match = await Match.findOne({ conversationId });
+      const match = await Match.findOne({ conversationId }).lean();
       if (!match || (match.userA.toString() !== userId && match.userB.toString() !== userId)) {
         return socket.emit('chat_error', { error: 'Access denied' });
       }

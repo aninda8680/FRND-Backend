@@ -1,8 +1,14 @@
 const { Redis } = require('@upstash/redis');
 
+if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('FATAL: UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN environment variables missing in production mode.');
+  }
+}
+
 const redisClient = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL || 'https://fluent-wildcat-167213.upstash.io',
-  token: process.env.UPSTASH_REDIS_REST_TOKEN || 'gQAAAAAAAo0tAAIgcDJjYjNhZDVjNzBlZTQ0NGY4YWQxYjc5NjdmODNiMjY1Yw',
+  url: process.env.UPSTASH_REDIS_REST_URL || '',
+  token: process.env.UPSTASH_REDIS_REST_TOKEN || '',
 });
 
 const redis = {
@@ -12,7 +18,8 @@ const redis = {
   mget: async (...keys) => {
     const flatKeys = keys.flat().filter(Boolean);
     if (flatKeys.length === 0) return [];
-    return await redisClient.mget(...flatKeys);
+    const res = await redisClient.mget(...flatKeys);
+    return Array.isArray(res) ? res : [res];
   },
   set: async (key, value, options) => {
     let opts = {};
@@ -25,8 +32,10 @@ const redis = {
     }
     return await redisClient.set(key, String(value), opts);
   },
-  del: async (key) => {
-    return await redisClient.del(key);
+  del: async (...keys) => {
+    const flatKeys = keys.flat().filter(Boolean);
+    if (flatKeys.length === 0) return 0;
+    return await redisClient.del(...flatKeys);
   },
   incr: async (key) => {
     return await redisClient.incr(key);
@@ -55,6 +64,9 @@ const redis = {
   publish: async (channel, message) => {
     const payload = typeof message === 'object' ? JSON.stringify(message) : String(message);
     return await redisClient.publish(channel, payload);
+  },
+  quit: async () => {
+    return Promise.resolve();
   },
   clientStatus: () => ({ isMock: false, connected: true })
 };

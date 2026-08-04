@@ -55,16 +55,14 @@ async function uploadVerificationImage(file) {
       uploadStream.end(file.buffer);
     });
   } else {
-    // Local fallback
+    // Local fallback: async file write to avoid blocking the event loop
     const uploadsDir = path.join(__dirname, '../public/uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
+    await fs.promises.mkdir(uploadsDir, { recursive: true });
     const ext = getSafeExtension(file.originalname, '.png');
     const filename = `id_${Date.now()}_${Math.round(Math.random() * 1e9)}${ext}`;
     const filePath = path.join(uploadsDir, filename);
-    
-    fs.writeFileSync(filePath, file.buffer);
+
+    await fs.promises.writeFile(filePath, file.buffer);
     
     return {
       url: `/uploads/${filename}`,
@@ -78,6 +76,9 @@ async function uploadVerificationImage(file) {
  * Gated and short-lived for admin review.
  */
 function getSignedPreviewUrl(publicId) {
+  if (!publicId || typeof publicId !== 'string') {
+    return null;
+  }
   if (isCloudinaryConfigured) {
     // Generate authenticated URL valid for 10 minutes (600 seconds)
     return cloudinary.url(publicId, {
@@ -115,16 +116,14 @@ async function uploadProfilePicture(file) {
       uploadStream.end(file.buffer);
     });
   } else {
-    // Local fallback
+    // Local fallback: async file write to avoid blocking the event loop
     const uploadsDir = path.join(__dirname, '../public/uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
+    await fs.promises.mkdir(uploadsDir, { recursive: true });
     const ext = getSafeExtension(file.originalname, '.jpg');
     const filename = `pic_${Date.now()}_${Math.round(Math.random() * 1e9)}${ext}`;
     const filePath = path.join(uploadsDir, filename);
-    
-    fs.writeFileSync(filePath, file.buffer);
+
+    await fs.promises.writeFile(filePath, file.buffer);
     
     return {
       url: `/uploads/${filename}`,
