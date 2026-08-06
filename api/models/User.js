@@ -175,6 +175,10 @@ const userSchema = new mongoose.Schema({
   },
   passwordChangedAt: {
     type: Date
+  },
+  fcmTokens: {
+    type: [String],
+    default: []
   }
 }, {
   timestamps: true,
