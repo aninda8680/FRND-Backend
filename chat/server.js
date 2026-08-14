@@ -285,21 +285,48 @@ io.on('connection', async (socket) => {
       // Send Push Notification to recipient
       if (admin.apps.length > 0) {
         const recipientId = match.userA.toString() === userId ? match.userB.toString() : match.userA.toString();
-        const recipient = await User.findById(recipientId).select('name fcmTokens');
-        const sender = await User.findById(userId).select('name');
-        if (recipient && recipient.fcmTokens && recipient.fcmTokens.length > 0) {
-          admin.messaging().sendEachForMulticast({
-            tokens: recipient.fcmTokens,
-            notification: {
-              title: `New message from ${sender?.name || 'someone'}`,
-              body: 'You have a new message.'
-            },
-            data: {
-              type: 'chat',
-              chatId: conversationId
-            }
-          }).catch(e => console.error('[FCM] Chat push error:', e));
-        }
+        
+        // Fetch sender and recipient profiles in parallel using lean() for lower memory and latency
+        Promise.all([
+          User.findById(recipientId).select('name fcmTokens').lean(),
+          User.findById(userId).select('name').lean()
+        ]).then(([recipient, sender]) => {
+          if (recipient && recipient.fcmTokens && recipient.fcmTokens.length > 0) {
+            const tokens = recipient.fcmTokens;
+            admin.messaging().sendEachForMulticast({
+              tokens,
+              notification: {
+                title: `New message from ${sender?.name || 'someone'}`,
+                body: 'You have a new message.'
+              },
+              data: {
+                type: 'chat',
+                chatId: conversationId
+              }
+            }).then(async (response) => {
+              if (response.failureCount > 0) {
+                const deadTokens = [];
+                response.responses.forEach((resp, idx) => {
+                  if (!resp.success) {
+                    const error = resp.error;
+                    if (error && (
+                      error.code === 'messaging/invalid-registration' ||
+                      error.code === 'messaging/registration-token-not-registered'
+                    )) {
+                      deadTokens.push(tokens[idx]);
+                    }
+                  }
+                });
+                if (deadTokens.length > 0) {
+                  console.log(`[FCM] Pruning ${deadTokens.length} dead tokens for user ${recipientId}`);
+                  await User.findByIdAndUpdate(recipientId, {
+                    $pull: { fcmTokens: { $in: deadTokens } }
+                  }).catch(() => {});
+                }
+              }
+            }).catch(e => console.error('[FCM] Chat push error:', e));
+          }
+        }).catch(e => console.error('[FCM] Error fetching user data for chat notification:', e));
       }
     } catch (err) {
       console.error('[CHAT] Error sending message:', err);

@@ -703,6 +703,9 @@ router.post('/users/:id/badge', adminAuthRequired, async (req, res) => {
 
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    // Invalidate user profile cache
+    await redis.del(`user:profile:${user._id}`).catch(() => {});
+
     await logAdminAction(req.admin._id, 'update_badges', user._id, { badges: sanitisedBadges });
 
     res.json({ message: 'User badges updated successfully', user });
@@ -859,6 +862,9 @@ router.post('/verification-requests/:id/approve', adminAuthRequired, async (req,
       $unset: { identityReviewReason: '' }
     });
 
+    // Invalidate user profile cache
+    await redis.del(`user:profile:${request.userId}`).catch(() => {});
+
     await logAdminAction(req.admin._id, 'approve_verification', request.userId, { requestId: request._id });
 
     res.json({ message: 'Verification request approved successfully' });
@@ -898,6 +904,9 @@ router.post('/verification-requests/:id/reject', adminAuthRequired, async (req, 
         identityReviewedAt: new Date()
       }
     });
+
+    // Invalidate user profile cache
+    await redis.del(`user:profile:${request.userId}`).catch(() => {});
 
     await logAdminAction(req.admin._id, 'reject_verification', request.userId, { requestId: request._id, reason: reason.trim() });
 

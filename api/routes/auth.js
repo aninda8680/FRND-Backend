@@ -1040,7 +1040,7 @@ router.post('/fcm-token', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'Token is required' });
     }
 
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (!user.fcmTokens) {
@@ -1051,6 +1051,9 @@ router.post('/fcm-token', authRequired, async (req, res) => {
       user.fcmTokens.push(token);
       await user.save();
     }
+
+    // Invalidate user profile cache
+    await redis.del(`user:profile:${req.user.id}`).catch(() => {});
 
     res.json({ message: 'Token registered successfully' });
   } catch (err) {
@@ -1068,13 +1071,16 @@ router.delete('/fcm-token', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'Token is required' });
     }
 
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (user.fcmTokens && user.fcmTokens.includes(token)) {
       user.fcmTokens = user.fcmTokens.filter(t => t !== token);
       await user.save();
     }
+
+    // Invalidate user profile cache
+    await redis.del(`user:profile:${req.user.id}`).catch(() => {});
 
     res.json({ message: 'Token removed successfully' });
   } catch (err) {
