@@ -177,6 +177,14 @@ router.post('/verify', authRequired, async (req, res) => {
       });
     }
 
+    // Prevent token sharing / replay attacks across accounts
+    const existingPayment = await Payment.findOne({ playPurchaseToken: purchaseToken }).lean();
+    if (existingPayment && existingPayment.userId.toString() !== req.user.id) {
+      return res.status(400).json({
+        error: 'This purchase token has already been verified by another account.',
+      });
+    }
+
     // Rate-limit: max 5 verification attempts per user per 15 minutes.
     const rateKey = `play_verify:${req.user.id}`;
     const attempts = await redis.incr(rateKey);
@@ -191,6 +199,12 @@ router.post('/verify', authRequired, async (req, res) => {
       subscriptionData = await verifyPlaySubscription(purchaseToken, productId);
     } catch (err) {
       console.error('[PlayBilling VERIFY] Play API error:', err.message);
+      // Google API error codes: 400/404 are typically invalid/not found tokens
+      if (err.code === 400 || err.code === 404 || err.status === 400 || err.status === 404) {
+        return res.status(400).json({
+          error: 'Invalid or expired Google Play purchase token. Please verify your purchase.',
+        });
+      }
       return res.status(502).json({
         error: 'Could not reach Google Play Developer API. Please try again.',
       });
@@ -219,8 +233,12 @@ router.post('/verify', authRequired, async (req, res) => {
     let expiresAt = null;
     const lineItem = subscriptionData.lineItems?.[0];
     if (lineItem?.expiryTime) {
-      expiresAt = new Date(lineItem.expiryTime);
-    } else {
+      const parsedDate = new Date(lineItem.expiryTime);
+      if (!isNaN(parsedDate.getTime())) {
+        expiresAt = parsedDate;
+      }
+    }
+    if (!expiresAt) {
       // Fallback: 28 days from now.
       expiresAt = new Date(Date.now() + 28 * 24 * 60 * 60 * 1000);
     }
@@ -362,7 +380,27 @@ router.post('/rtdn', async (req, res) => {
       EXPIRED: 13,
     };
 
-    const user = await User.findOne({ playPurchaseToken: purchaseToken });
+    let user = await User.findOne({ playPurchaseToken: purchaseToken });
+
+    if (!user) {
+      // If the purchase token is not found, check if it's a replacement token linked to an old one
+      try {
+        console.log(`[PlayBilling RTDN] Token not found in DB. Checking if linked to an older token...`);
+        const subscriptionData = await verifyPlaySubscription(purchaseToken, subscriptionId);
+        const linkedToken = subscriptionData.linkedPurchaseToken;
+        if (linkedToken) {
+          user = await User.findOne({ playPurchaseToken: linkedToken });
+          if (user) {
+            console.log(`[PlayBilling RTDN] Found user by linkedPurchaseToken: ${user._id}. Updating to new token.`);
+            user.playPurchaseToken = purchaseToken;
+            user.playProductId = subscriptionId;
+            await user.save();
+          }
+        }
+      } catch (err) {
+        console.error('[PlayBilling RTDN] Failed to fetch linked token details:', err.message);
+      }
+    }
 
     if (!user) {
       // Token not found — could be a new purchase token after upgrade; log and ack.
@@ -378,17 +416,34 @@ router.post('/rtdn', async (req, res) => {
       case NOTIFICATION.RECOVERED:
       case NOTIFICATION.RESTARTED:
       case NOTIFICATION.IN_GRACE_PERIOD: {
-        // Subscription renewed or recovered — extend expiry by 28 days.
-        const baseDate =
-          user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt) > now
-            ? new Date(user.subscriptionExpiresAt)
-            : now;
-        const newExpiresAt = new Date(baseDate.getTime() + 28 * 24 * 60 * 60 * 1000);
+        // Fetch fresh subscription details from Play Developer API to get single-source-of-truth expiry
+        let expiresAt = null;
+        try {
+          const subscriptionData = await verifyPlaySubscription(purchaseToken, subscriptionId);
+          const lineItem = subscriptionData.lineItems?.[0];
+          if (lineItem?.expiryTime) {
+            const parsedDate = new Date(lineItem.expiryTime);
+            if (!isNaN(parsedDate.getTime())) {
+              expiresAt = parsedDate;
+            }
+          }
+        } catch (playErr) {
+          console.warn('[PlayBilling RTDN] Failed to fetch fresh expiry from Play API, falling back to date math:', playErr.message);
+        }
+
+        if (!expiresAt) {
+          const baseDate =
+            user.subscriptionExpiresAt && new Date(user.subscriptionExpiresAt) > now
+              ? new Date(user.subscriptionExpiresAt)
+              : now;
+          expiresAt = new Date(baseDate.getTime() + 28 * 24 * 60 * 60 * 1000);
+        }
+
         await User.findByIdAndUpdate(user._id, {
           $set: {
             tier,
             isPremium: true,
-            subscriptionExpiresAt: newExpiresAt,
+            subscriptionExpiresAt: expiresAt,
             playSubscriptionState: 'active',
             playPurchaseToken: purchaseToken,
             playProductId: subscriptionId,
@@ -408,7 +463,7 @@ router.post('/rtdn', async (req, res) => {
           isAutopay: true,
           status: 'active',
           activatedAt: now,
-          expiresAt: newExpiresAt,
+          expiresAt: expiresAt,
         }).save();
         await redis.del(`discover:${user._id}`, `user:profile:${user._id}`).catch(() => {});
         break;

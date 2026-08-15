@@ -611,45 +611,104 @@ async function handleLikeAction(req, res, actionType) {
       console.error('[NOTIF PUB ERROR]:', pubErr.message);
     }
 
-    // I. Send Push Notification via Firebase
+    // I. Send Push Notification via Firebase asynchronously (non-blocking)
     if (admin.apps.length > 0) {
-      try {
-        if (matchFormed) {
-          // Send to both users
-          const tokens = [];
-          if (user.fcmTokens && user.fcmTokens.length > 0) tokens.push(...user.fcmTokens);
-          if (target.fcmTokens && target.fcmTokens.length > 0) tokens.push(...target.fcmTokens);
-          
-          if (tokens.length > 0) {
-            await admin.messaging().sendEachForMulticast({
-              tokens,
-              notification: {
-                title: 'New Match! 🎉',
-                body: `You have a new match! Say hi.`
-              },
-              data: {
-                type: 'chat',
-                chatId: conversationId
-              }
-            });
-          }
-        } else {
-          // Send to target only
-          if (target.fcmTokens && target.fcmTokens.length > 0) {
-            await admin.messaging().sendEachForMulticast({
-              tokens: target.fcmTokens,
-              notification: {
-                title: actionType === 'superlike' ? 'New Superlike! ⭐' : 'New Like! ❤️',
-                body: actionType === 'superlike' ? 'Someone Superliked you! You stand out.' : 'Someone new liked you! Swipe to find out who.'
-              },
-              data: {
-                type: 'like'
-              }
-            });
-          }
+      if (matchFormed) {
+        const userTokens = user.fcmTokens || [];
+        const targetTokens = target.fcmTokens || [];
+        
+        if (userTokens.length > 0 || targetTokens.length > 0) {
+          const runPush = async () => {
+            if (userTokens.length > 0) {
+              admin.messaging().sendEachForMulticast({
+                tokens: userTokens,
+                notification: {
+                  title: 'New Match! 🎉',
+                  body: `You have a new match! Say hi.`
+                },
+                data: {
+                  type: 'chat',
+                  chatId: conversationId
+                }
+              }).then(async (res) => {
+                if (res.failureCount > 0) {
+                  const dead = [];
+                  res.responses.forEach((resp, idx) => {
+                    if (!resp.success && resp.error && (
+                      resp.error.code === 'messaging/invalid-registration' ||
+                      resp.error.code === 'messaging/registration-token-not-registered'
+                    )) {
+                      dead.push(userTokens[idx]);
+                    }
+                  });
+                  if (dead.length > 0) {
+                    await User.findByIdAndUpdate(user._id, { $pull: { fcmTokens: { $in: dead } } }).catch(() => {});
+                  }
+                }
+              }).catch(e => console.error('[FCM] Match push user error:', e));
+            }
+            
+            if (targetTokens.length > 0) {
+              admin.messaging().sendEachForMulticast({
+                tokens: targetTokens,
+                notification: {
+                  title: 'New Match! 🎉',
+                  body: `You have a new match! Say hi.`
+                },
+                data: {
+                  type: 'chat',
+                  chatId: conversationId
+                }
+              }).then(async (res) => {
+                if (res.failureCount > 0) {
+                  const dead = [];
+                  res.responses.forEach((resp, idx) => {
+                    if (!resp.success && resp.error && (
+                      resp.error.code === 'messaging/invalid-registration' ||
+                      resp.error.code === 'messaging/registration-token-not-registered'
+                    )) {
+                      dead.push(targetTokens[idx]);
+                    }
+                  });
+                  if (dead.length > 0) {
+                    await User.findByIdAndUpdate(target._id, { $pull: { fcmTokens: { $in: dead } } }).catch(() => {});
+                  }
+                }
+              }).catch(e => console.error('[FCM] Match push target error:', e));
+            }
+          };
+          runPush().catch(e => console.error('[FCM] Match push task error:', e));
         }
-      } catch (fcmErr) {
-        console.error('[FCM ERROR]:', fcmErr);
+      } else {
+        // Send to target only
+        const targetTokens = target.fcmTokens || [];
+        if (targetTokens.length > 0) {
+          admin.messaging().sendEachForMulticast({
+            tokens: targetTokens,
+            notification: {
+              title: actionType === 'superlike' ? 'New Superlike! ⭐' : 'New Like! ❤️',
+              body: actionType === 'superlike' ? 'Someone Superliked you! You stand out.' : 'Someone new liked you! Swipe to find out who.'
+            },
+            data: {
+              type: 'like'
+            }
+          }).then(async (res) => {
+            if (res.failureCount > 0) {
+              const dead = [];
+              res.responses.forEach((resp, idx) => {
+                if (!resp.success && resp.error && (
+                  resp.error.code === 'messaging/invalid-registration' ||
+                  resp.error.code === 'messaging/registration-token-not-registered'
+                )) {
+                  dead.push(targetTokens[idx]);
+                }
+              });
+              if (dead.length > 0) {
+                await User.findByIdAndUpdate(target._id, { $pull: { fcmTokens: { $in: dead } } }).catch(() => {});
+              }
+            }
+          }).catch(e => console.error('[FCM] Like push error:', e));
+        }
       }
     }
 
@@ -1317,13 +1376,32 @@ router.post('/posts/:postId/upvote', authRequired, async (req, res) => {
 
     if (post) {
       if (admin.apps.length > 0 && post.userId.toString() !== userId.toString()) {
-        const author = await User.findById(post.userId);
-        if (author && author.fcmTokens && author.fcmTokens.length > 0) {
-          admin.messaging().sendEachForMulticast({
-            tokens: author.fcmTokens,
-            notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' }
-          }).catch(e => console.error('[FCM] Upvote push error:', e));
-        }
+        User.findById(post.userId).select('fcmTokens').lean()
+          .then(author => {
+            if (author && author.fcmTokens && author.fcmTokens.length > 0) {
+              const tokens = author.fcmTokens;
+              admin.messaging().sendEachForMulticast({
+                tokens,
+                notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' }
+              }).then(async (response) => {
+                if (response.failureCount > 0) {
+                  const dead = [];
+                  response.responses.forEach((resp, idx) => {
+                    if (!resp.success && resp.error && (
+                      resp.error.code === 'messaging/invalid-registration' ||
+                      resp.error.code === 'messaging/registration-token-not-registered'
+                    )) {
+                      dead.push(tokens[idx]);
+                    }
+                  });
+                  if (dead.length > 0) {
+                    await User.findByIdAndUpdate(author._id, { $pull: { fcmTokens: { $in: dead } } }).catch(() => {});
+                  }
+                }
+              }).catch(e => console.error('[FCM] Upvote push error:', e));
+            }
+          })
+          .catch(e => console.error('[FCM] Error finding author for upvote notification:', e));
       }
       return res.json({
         message: 'Upvoted post',
@@ -1342,13 +1420,32 @@ router.post('/posts/:postId/upvote', authRequired, async (req, res) => {
 
     if (post) {
       if (admin.apps.length > 0 && post.userId.toString() !== userId.toString()) {
-        const author = await User.findById(post.userId);
-        if (author && author.fcmTokens && author.fcmTokens.length > 0) {
-          admin.messaging().sendEachForMulticast({
-            tokens: author.fcmTokens,
-            notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' }
-          }).catch(e => console.error('[FCM] Upvote push error:', e));
-        }
+        User.findById(post.userId).select('fcmTokens').lean()
+          .then(author => {
+            if (author && author.fcmTokens && author.fcmTokens.length > 0) {
+              const tokens = author.fcmTokens;
+              admin.messaging().sendEachForMulticast({
+                tokens,
+                notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' }
+              }).then(async (response) => {
+                if (response.failureCount > 0) {
+                  const dead = [];
+                  response.responses.forEach((resp, idx) => {
+                    if (!resp.success && resp.error && (
+                      resp.error.code === 'messaging/invalid-registration' ||
+                      resp.error.code === 'messaging/registration-token-not-registered'
+                    )) {
+                      dead.push(tokens[idx]);
+                    }
+                  });
+                  if (dead.length > 0) {
+                    await User.findByIdAndUpdate(author._id, { $pull: { fcmTokens: { $in: dead } } }).catch(() => {});
+                  }
+                }
+              }).catch(e => console.error('[FCM] Upvote push error:', e));
+            }
+          })
+          .catch(e => console.error('[FCM] Error finding author for upvote notification:', e));
       }
       return res.json({
         message: 'Upvoted post',
