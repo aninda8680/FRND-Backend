@@ -57,7 +57,7 @@ const paymentSchema = new mongoose.Schema({
     index: true
   },
   playProductId: {
-    type: String // 'frnd_silver_pass' | 'frnd_gold_pass'
+    type: String // 'frnd_silver_plan' | 'frnd_gold_plan'
   },
   playOrderId: {
     type: String // Order ID from Google Play (returned in subscriptionv2 response)

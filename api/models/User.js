@@ -172,7 +172,7 @@ const userSchema = new mongoose.Schema({
     index: true
   },
   playProductId: {
-    type: String // 'frnd_silver_pass' | 'frnd_gold_pass'
+    type: String // 'frnd_silver_plan' | 'frnd_gold_plan'
   },
   playSubscriptionState: {
     type: String,
