@@ -33,11 +33,11 @@
  *       https://your-api.onrender.com/api/payments/play/rtdn?token=<PLAY_RTDN_PUBSUB_TOKEN>
  *
  * ── PRODUCT ID → TIER MAPPING ────────────────────────────────────────────────
- *   frnd_silver_pass  →  'silver'  (₹39, every 4 weeks)
- *   frnd_gold_pass    →  'gold'    (₹49, every 4 weeks)
+ *   frnd_silver_plan  →  'silver'  (₹39, every 4 weeks)
+ *   frnd_gold_plan    →  'gold'    (₹49, every 4 weeks)
  *
  * ── MANUAL SETUP CHECKLIST (before testing end-to-end) ───────────────────────
- *   □ Play Console: Create frnd_silver_pass and frnd_gold_pass as recurring
+ *   □ Play Console: Create frnd_silver_plan and frnd_gold_plan as recurring
  *     subscriptions with "Every 4 weeks" base plan at ₹39 / ₹49 respectively.
  *   □ Play Console: Enable the Google Play Developer API in Google Cloud Console.
  *   □ Google Cloud Console: Create Pub/Sub topic (e.g. "frnd-play-rtdn").
@@ -62,8 +62,8 @@ const PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME || 'com.frnd.app';
 
 /** Maps Play Console product IDs to internal tier strings. */
 const PRODUCT_TIER_MAP = {
-  frnd_silver_pass: 'silver',
-  frnd_gold_pass: 'gold',
+  frnd_silver_plan: 'silver',
+  frnd_gold_plan: 'gold',
 };
 
 /** Entitlement limits by tier — mirrors TIER_CONFIG in payments.js. */
@@ -113,7 +113,7 @@ function getAndroidPublisherClient() {
  * Returns the subscription resource on success, throws on failure.
  *
  * @param {string} purchaseToken
- * @param {string} productId  — e.g. 'frnd_silver_pass'
+ * @param {string} productId  — e.g. 'frnd_silver_plan'
  */
 async function verifyPlaySubscription(purchaseToken, productId) {
   const androidpublisher = getAndroidPublisherClient();
@@ -173,7 +173,7 @@ router.post('/verify', authRequired, async (req, res) => {
     const tier = PRODUCT_TIER_MAP[productId];
     if (!tier) {
       return res.status(400).json({
-        error: `Unknown productId: ${productId}. Expected frnd_silver_pass or frnd_gold_pass.`,
+        error: `Unknown productId: ${productId}. Expected frnd_silver_plan or frnd_gold_plan.`,
       });
     }
 
