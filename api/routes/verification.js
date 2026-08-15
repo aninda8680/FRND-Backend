@@ -6,6 +6,7 @@ const AccountFlag = require('../models/AccountFlag');
 const IdentityVerificationRequest = require('../models/IdentityVerificationRequest');
 const { authRequired } = require('../middleware/auth');
 const { uploadVerificationImage } = require('../utils/uploader');
+const redis = require('../utils/redis');
 
 // Memory storage for multer — with strict MIME type validation
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -124,6 +125,9 @@ async function handleIdentitySubmit(req, res, isResubmit = false) {
         await User.findByIdAndUpdate(user._id, { $inc: { openFlagCount: 1 } });
       }
     }
+
+    // Invalidate user profile cache
+    await redis.del(`user:profile:${req.user.id}`).catch(() => {});
 
     res.status(201).json({
       message: 'Identity verification request submitted successfully',
