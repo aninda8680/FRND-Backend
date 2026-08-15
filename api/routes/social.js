@@ -152,7 +152,7 @@ router.get('/users/me', authRequired, async (req, res) => {
 // PUT /api/users/me
 router.put('/users/me', authRequired, async (req, res) => {
   try {
-    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, tags, pictures, interests, prompts, religion, beliefs, customDesignId } = req.body;
+    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, tags, pictures, interests, prompts, religion, beliefs, customDesignId, hasEnteredWorld } = req.body;
 
     // Input validation
     if (username !== undefined) {
@@ -227,6 +227,7 @@ router.put('/users/me', authRequired, async (req, res) => {
     if (sexualOrientation !== undefined && validateStringLength(sexualOrientation, 50)) allowedUpdates.sexualOrientation = sexualOrientation;
     if (tags !== undefined && typeof tags === 'object' && !Array.isArray(tags)) allowedUpdates.tags = tags;
     if (pictures !== undefined) allowedUpdates.pictures = pictures;
+    if (hasEnteredWorld !== undefined) allowedUpdates.hasEnteredWorld = Boolean(hasEnteredWorld);
 
     if (customDesignId !== undefined) {
       const existingUser = await User.findById(req.user.id).lean();

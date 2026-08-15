@@ -23,6 +23,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: false
   },
+  hasEnteredWorld: {
+    type: Boolean,
+    default: false
+  },
   age: {
     type: Number,
     required: false
