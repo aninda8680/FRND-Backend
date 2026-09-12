@@ -136,10 +136,11 @@ router.get('/users/me', authRequired, async (req, res) => {
       }
     }
 
-    const user = await User.findById(req.user.id).select('-passwordHash').lean();
-    if (!user) {
+    const userDoc = await User.findById(req.user.id).select('-passwordHash');
+    if (!userDoc) {
       return res.status(404).json({ error: 'User not found' });
     }
+    const user = userDoc.toObject({ virtuals: true });
 
     await redis.set(cacheKey, JSON.stringify(user), { EX: 300 }).catch(() => {});
     res.json({ user });
