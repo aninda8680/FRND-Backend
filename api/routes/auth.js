@@ -240,7 +240,10 @@ router.post('/signup', async (req, res) => {
       await User.findByIdAndUpdate(user._id, { $inc: { openFlagCount: 1 } });
     }
 
-    // 8. OTP generation for all user signups (fast SHA-256 hash)
+    // 8. OTP for college emails only (per API contract). Non-college emails
+    // are verified immediately and skip the OTP step entirely.
+    let otpSent = false;
+    if (isCollegeEmail) {
     const otp = generateOTP();
     const otpHash = hashOTP(otp);
 
@@ -261,6 +264,12 @@ router.post('/signup', async (req, res) => {
     await verification.save();
 
     await sendOTPEmail(cleanEmail, otp);
+    otpSent = true;
+    } else {
+      // Non-college email: no OTP per contract — trust and verify immediately.
+      user.emailVerified = true;
+      await user.save();
+    }
 
     // 9. Generate token & login user automatically upon signup
     const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
@@ -281,7 +290,7 @@ router.post('/signup', async (req, res) => {
         emailVerified: user.emailVerified,
         identityStatus: user.identityStatus
       },
-      otpSent: true
+      otpSent
     });
   } catch (err) {
     console.error(err);
