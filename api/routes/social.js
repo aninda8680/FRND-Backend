@@ -152,7 +152,7 @@ router.get('/users/me', authRequired, async (req, res) => {
 // PUT /api/users/me
 router.put('/users/me', authRequired, async (req, res) => {
   try {
-    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, tags, pictures, interests, prompts, religion, beliefs, customDesignId, hasEnteredWorld } = req.body;
+    const { username, name, age, bio, school, course, height, hobbies, skills, lookingFor, sexualOrientation, gender, tags, pictures, interests, prompts, religion, beliefs, customDesignId, hasEnteredWorld } = req.body;
 
     // Input validation
     if (username !== undefined) {
@@ -193,6 +193,9 @@ router.put('/users/me', authRequired, async (req, res) => {
     if (skills !== undefined && (!Array.isArray(skills) || skills.length > 20)) {
       return res.status(400).json({ error: 'Skills must be an array with at most 20 items' });
     }
+    if (gender !== undefined && !['male', 'female', 'other'].includes(gender)) {
+      return res.status(400).json({ error: 'Invalid gender value. Must be male, female, or other' });
+    }
     if (interests !== undefined && !Array.isArray(interests)) {
       return res.status(400).json({ error: 'Interests must be an array' });
     }
@@ -223,6 +226,7 @@ router.put('/users/me', authRequired, async (req, res) => {
     if (height !== undefined && typeof height === 'number') allowedUpdates.height = height;
     if (hobbies !== undefined) allowedUpdates.hobbies = hobbies.map(h => String(h).trim()).filter(Boolean);
     if (skills !== undefined) allowedUpdates.skills = skills.map(s => String(s).trim()).filter(Boolean);
+    if (gender !== undefined && ['male', 'female', 'other'].includes(gender)) allowedUpdates.gender = gender;
     if (lookingFor !== undefined && ['friends', 'dating'].includes(lookingFor)) allowedUpdates.lookingFor = lookingFor;
     if (sexualOrientation !== undefined && validateStringLength(sexualOrientation, 50)) allowedUpdates.sexualOrientation = sexualOrientation;
     if (tags !== undefined && typeof tags === 'object' && !Array.isArray(tags)) allowedUpdates.tags = tags;
