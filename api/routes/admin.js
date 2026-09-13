@@ -788,6 +788,12 @@ router.post('/announce', adminAuthRequired, async (req, res) => {
           title: title.trim(),
           body: content.trim()
         },
+        android: {
+          notification: {
+            channelId: 'campusmatch_channel_id',
+            priority: 'high'
+          }
+        },
         data: {
           type: 'announcement',
           announcementId: announcement._id.toString()
