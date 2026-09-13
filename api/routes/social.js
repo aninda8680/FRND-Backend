@@ -632,8 +632,9 @@ async function handleLikeAction(req, res, actionType) {
                   body: `You have a new match! Say hi.`
                 },
                 data: {
-                  type: 'chat',
-                  chatId: conversationId
+                  type: 'match',
+                  chatId: conversationId.toString(),
+                  userId: target._id.toString()
                 }
               }).then(async (res) => {
                 if (res.failureCount > 0) {
@@ -661,8 +662,9 @@ async function handleLikeAction(req, res, actionType) {
                   body: `You have a new match! Say hi.`
                 },
                 data: {
-                  type: 'chat',
-                  chatId: conversationId
+                  type: 'match',
+                  chatId: conversationId.toString(),
+                  userId: user._id.toString()
                 }
               }).then(async (res) => {
                 if (res.failureCount > 0) {
@@ -695,7 +697,8 @@ async function handleLikeAction(req, res, actionType) {
               body: actionType === 'superlike' ? 'Someone Superliked you! You stand out.' : 'Someone new liked you! Swipe to find out who.'
             },
             data: {
-              type: 'like'
+              type: actionType === 'superlike' ? 'superlike' : 'like',
+              userId: user._id.toString()
             }
           }).then(async (res) => {
             if (res.failureCount > 0) {
@@ -1387,7 +1390,8 @@ router.post('/posts/:postId/upvote', authRequired, async (req, res) => {
               const tokens = author.fcmTokens;
               admin.messaging().sendEachForMulticast({
                 tokens,
-                notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' }
+                notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' },
+                data: { type: 'upvote', postId: postId.toString() }
               }).then(async (response) => {
                 if (response.failureCount > 0) {
                   const dead = [];
@@ -1431,7 +1435,8 @@ router.post('/posts/:postId/upvote', authRequired, async (req, res) => {
               const tokens = author.fcmTokens;
               admin.messaging().sendEachForMulticast({
                 tokens,
-                notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' }
+                notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' },
+                data: { type: 'upvote', postId: postId.toString() }
               }).then(async (response) => {
                 if (response.failureCount > 0) {
                   const dead = [];
