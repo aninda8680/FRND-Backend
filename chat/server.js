@@ -299,6 +299,12 @@ io.on('connection', async (socket) => {
                 title: `New message from ${sender?.name || 'someone'}`,
                 body: 'You have a new message.'
               },
+              android: {
+                notification: {
+                  channelId: 'campusmatch_channel_id',
+                  priority: 'high'
+                }
+              },
               data: {
                 type: 'chat',
                 chatId: conversationId.toString(),
