@@ -631,6 +631,12 @@ async function handleLikeAction(req, res, actionType) {
                   title: 'New Match! 🎉',
                   body: `You have a new match! Say hi.`
                 },
+                android: {
+                  notification: {
+                    channelId: 'campusmatch_channel_id',
+                    priority: 'high'
+                  }
+                },
                 data: {
                   type: 'match',
                   chatId: conversationId.toString(),
@@ -660,6 +666,12 @@ async function handleLikeAction(req, res, actionType) {
                 notification: {
                   title: 'New Match! 🎉',
                   body: `You have a new match! Say hi.`
+                },
+                android: {
+                  notification: {
+                    channelId: 'campusmatch_channel_id',
+                    priority: 'high'
+                  }
                 },
                 data: {
                   type: 'match',
@@ -695,6 +707,12 @@ async function handleLikeAction(req, res, actionType) {
             notification: {
               title: actionType === 'superlike' ? 'New Superlike! ⭐' : 'New Like! ❤️',
               body: actionType === 'superlike' ? 'Someone Superliked you! You stand out.' : 'Someone new liked you! Swipe to find out who.'
+            },
+            android: {
+              notification: {
+                channelId: 'campusmatch_channel_id',
+                priority: 'high'
+              }
             },
             data: {
               type: actionType === 'superlike' ? 'superlike' : 'like',
@@ -1391,6 +1409,12 @@ router.post('/posts/:postId/upvote', authRequired, async (req, res) => {
               admin.messaging().sendEachForMulticast({
                 tokens,
                 notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' },
+                android: {
+                  notification: {
+                    channelId: 'campusmatch_channel_id',
+                    priority: 'high'
+                  }
+                },
                 data: { type: 'upvote', postId: postId.toString() }
               }).then(async (response) => {
                 if (response.failureCount > 0) {
@@ -1436,6 +1460,12 @@ router.post('/posts/:postId/upvote', authRequired, async (req, res) => {
               admin.messaging().sendEachForMulticast({
                 tokens,
                 notification: { title: 'New Upvote! 👍', body: 'Someone upvoted your anonymous post.' },
+                android: {
+                  notification: {
+                    channelId: 'campusmatch_channel_id',
+                    priority: 'high'
+                  }
+                },
                 data: { type: 'upvote', postId: postId.toString() }
               }).then(async (response) => {
                 if (response.failureCount > 0) {
