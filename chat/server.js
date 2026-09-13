@@ -301,7 +301,8 @@ io.on('connection', async (socket) => {
               },
               data: {
                 type: 'chat',
-                chatId: conversationId
+                chatId: conversationId.toString(),
+                senderId: userId.toString()
               }
             }).then(async (response) => {
               if (response.failureCount > 0) {

@@ -787,6 +787,10 @@ router.post('/announce', adminAuthRequired, async (req, res) => {
         notification: {
           title: title.trim(),
           body: content.trim()
+        },
+        data: {
+          type: 'announcement',
+          announcementId: announcement._id.toString()
         }
       }).catch(e => console.error('[FCM] Announcement push error:', e));
     }
