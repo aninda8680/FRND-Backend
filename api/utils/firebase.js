@@ -1,8 +1,9 @@
 const admin = require('firebase-admin');
 
 try {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
-    const serviceAccountJson = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8');
+  const base64Key = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+  if (base64Key) {
+    const serviceAccountJson = Buffer.from(base64Key, 'base64').toString('utf8');
     const serviceAccount = JSON.parse(serviceAccountJson);
     
     if (!admin.apps.length) {
