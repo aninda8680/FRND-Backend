@@ -338,6 +338,23 @@ router.get('/discover', authRequired, async (req, res) => {
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
 
+    // Check if free tier user hit daily swipe limit
+    if (user.tier === 'free') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const lastSwipe = user.lastSwipeDate ? new Date(user.lastSwipeDate) : null;
+      if (lastSwipe) {
+        lastSwipe.setHours(0, 0, 0, 0);
+      }
+      
+      if (lastSwipe && lastSwipe.getTime() === today.getTime()) {
+        if ((user.dailySwipesCount || 0) >= 15) {
+          return res.status(200).json({ profiles: [], limitReached: true });
+        }
+      }
+    }
+
     // --- Cache read: try to serve ranked candidates from Redis before DB ---
     const cacheKey = `discover:${req.user.id}`;
     let scoredProfiles = null;
@@ -457,6 +474,25 @@ async function handleLikeAction(req, res, actionType) {
     }
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (user.tier === 'free') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const lastSwipe = user.lastSwipeDate ? new Date(user.lastSwipeDate) : null;
+      if (lastSwipe) lastSwipe.setHours(0, 0, 0, 0);
+
+      const isSameDay = lastSwipe && lastSwipe.getTime() === today.getTime();
+      const currentSwipes = isSameDay ? (user.dailySwipesCount || 0) : 0;
+
+      if (currentSwipes >= 15) {
+        return res.status(403).json({ error: 'Daily discover limit of 15 profiles reached. Upgrade to Premium for unlimited profiles!' });
+      }
+
+      await User.findByIdAndUpdate(user._id, {
+        dailySwipesCount: currentSwipes + 1,
+        lastSwipeDate: new Date()
+      });
     }
 
     // B. Check block status (either direction)
@@ -763,6 +799,28 @@ async function handleDislikeAction(req, res) {
 
     if (fromUserId.equals(toUserId)) {
       return res.status(400).json({ error: 'You cannot pass yourself' });
+    }
+
+    const user = await User.findById(fromUserId).lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.tier === 'free') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const lastSwipe = user.lastSwipeDate ? new Date(user.lastSwipeDate) : null;
+      if (lastSwipe) lastSwipe.setHours(0, 0, 0, 0);
+
+      const isSameDay = lastSwipe && lastSwipe.getTime() === today.getTime();
+      const currentSwipes = isSameDay ? (user.dailySwipesCount || 0) : 0;
+
+      if (currentSwipes >= 15) {
+        return res.status(403).json({ error: 'Daily discover limit of 15 profiles reached. Upgrade to Premium for unlimited profiles!' });
+      }
+
+      await User.findByIdAndUpdate(user._id, {
+        dailySwipesCount: currentSwipes + 1,
+        lastSwipeDate: new Date()
+      });
     }
 
     // Save dislike record (upsert)

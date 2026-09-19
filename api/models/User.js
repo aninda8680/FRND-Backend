@@ -196,6 +196,14 @@ const userSchema = new mongoose.Schema({
   fcmTokens: {
     type: [String],
     default: []
+  },
+  dailySwipesCount: {
+    type: Number,
+    default: 0
+  },
+  lastSwipeDate: {
+    type: Date,
+    default: Date.now
   }
 }, {
   timestamps: true,
