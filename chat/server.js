@@ -386,7 +386,7 @@ app.post('/internal/notify', async (req, res) => {
         toUserId,
         fromUserId,
         type: type || 'like',
-        message: 'Someone liked your profile!',
+        message: req.body.likerName ? `${req.body.likerName} liked your profile!` : 'Someone liked your profile!',
         timestamp: now
       });
       console.log(`[SOCKET NOTIFY] Emitted new_like to user_${toUserId}`);
