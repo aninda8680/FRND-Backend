@@ -791,7 +791,9 @@ router.post('/announce', adminAuthRequired, async (req, res) => {
         android: {
           notification: {
             channelId: 'campusmatch_channel_id',
-            priority: 'high'
+            priority: 'high',
+            icon: 'ic_announcement',
+            color: '#6B1B35'
           }
         },
         data: {
