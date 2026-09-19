@@ -1090,5 +1090,45 @@ router.delete('/fcm-token', authRequired, async (req, res) => {
     res.status(500).json({ error: 'Server error removing token' });
   }
 });
+// DELETE /api/auth/account
+// Deletes the user account and cleans up related social records.
+router.delete('/account', authRequired, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const User = require('../models/User');
+    const Like = require('../models/Like');
+    const Dislike = require('../models/Dislike');
+    const Match = require('../models/Match');
+    const Block = require('../models/Block');
+    const Message = require('../models/Message');
+    const AccountFlag = require('../models/AccountFlag');
+
+    // 1. Delete User Record
+    const user = await User.findByIdAndDelete(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // 2. Cascade delete related records
+    await Promise.all([
+      Match.deleteMany({ $or: [{ userA: userId }, { userB: userId }] }),
+      Like.deleteMany({ $or: [{ fromUserId: userId }, { toUserId: userId }] }),
+      Dislike.deleteMany({ $or: [{ fromUserId: userId }, { toUserId: userId }] }),
+      Block.deleteMany({ $or: [{ blockerId: userId }, { blockedId: userId }] }),
+      Message.deleteMany({ senderId: userId }),
+      AccountFlag.deleteMany({ targetId: userId })
+    ]);
+
+    // 3. Clear Redis Caches
+    await redis.del(`discover:${userId}`).catch(() => {});
+    await redis.del(`user:profile:${userId}`).catch(() => {});
+
+    // Note: The auth token cookie will be cleared by the client.
+    res.json({ message: 'Account deleted successfully' });
+  } catch (err) {
+    console.error('[AUTH] Account deletion error:', err);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
 
 module.exports = router;
