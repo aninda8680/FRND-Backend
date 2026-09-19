@@ -589,7 +589,7 @@ async function handleLikeAction(req, res, actionType) {
       const chatUrl = process.env.CHAT_SERVICE_URL || 'http://localhost:5001';
       const payload = matchFormed
         ? { event: 'new_match', userA: fromUserId.toString(), userB: toUserId.toString(), conversationId, timestamp: new Date() }
-        : { event: 'new_like', toUserId: toUserId.toString(), fromUserId: fromUserId.toString(), type: actionType, timestamp: new Date() };
+        : { event: 'new_like', toUserId: toUserId.toString(), fromUserId: fromUserId.toString(), type: actionType, timestamp: new Date(), likerName: user.name };
 
       const targetUrl = new URL(`${chatUrl}/internal/notify`);
       const transport = targetUrl.protocol === 'https:' ? https : http;
